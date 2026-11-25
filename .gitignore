@@ -16,9 +16,11 @@
 *.db-wal
 *.sqlite
 *.sqlite3
+/crew/
 /goals/
 /journal/
 /notes/
 /people/
 /reviews/
+/routines/
 /tasks/

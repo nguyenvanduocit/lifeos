@@ -1,61 +1,42 @@
-# lifeos
+# LifeOS
 
-AI agent giúp bạn quản trị cuộc đời: việc cần làm, mục tiêu, thói quen, mối quan hệ, tiền bạc, sức khoẻ, nhật ký, ghi chú và inbox. Dữ liệu là file Markdown và một file SQLite trên máy bạn. Agent là một phiên Claude Code chạy trên thư mục dữ liệu đó.
+**Trợ lý AI cá nhân cho việc cần làm, thói quen và nhật ký, với dữ liệu lưu trên máy bạn.**
 
-Web là một dashboard để nhìn toàn cảnh: bản tin buổi sáng, việc hôm nay, chuỗi thói quen, ai cần liên lạc, chi tiêu so với ngân sách, xu hướng sức khoẻ. Dashboard chỉ để xem; muốn thay đổi gì thì nói với agent trong bảng Assistant bên cạnh, và trang tự cập nhật khi agent làm xong.
+![Bìa LifeOS với đồi xanh lúc bình minh và một cuốn sổ mở](docs/assets/cover.webp)
 
-Ngoài Assistant, bạn có thể có một **crew**: nhờ Assistant tạo những agent riêng (huấn luyện viên sức khoẻ, cố vấn tài chính…), mỗi agent có vai trò, tool, memory và cuộc trò chuyện riêng; chọn agent ở đầu bảng Assistant để nói với nó. Agent tự ghi nhớ những điều đáng nhớ về bạn và tự nhớ lại khi cần; trang **Memory** cho xem tất cả, muốn quên điều gì thì nói với agent.
+LifeOS dùng Claude Code để trò chuyện với bạn và quản lý một vault Markdown + SQLite. Bạn có thể xem kế hoạch hôm nay, nhờ agent cập nhật dữ liệu và theo dõi thay đổi trên dashboard.
 
-## Cần có
-
-- Rust (nightly, edition 2024), target `wasm32-unknown-unknown`, và `wasm-bindgen-cli` đúng bản crate đang ghim (`cargo install wasm-bindgen-cli --version 0.2.130 --locked`)
-- Node.js và npm
-- Claude Code 2.1.329 trở lên, đã đăng nhập (`claude update`)
+- **Tổ chức ngày của bạn** với việc cần làm, mục tiêu, thói quen, nhật ký, ghi chú và inbox.
+- **Theo dõi điều quan trọng** như người cần liên lạc, chi tiêu theo ngân sách và xu hướng sức khỏe.
+- **Làm việc với một crew** gồm các agent chuyên trách, mỗi agent có vai trò, bộ công cụ, bộ nhớ và lịch sử trò chuyện riêng.
+- **Dùng qua nhiều kênh** gồm web, terminal, Telegram và MCP.
 
 ## Bắt đầu
 
-```sh
-make deps build
-./target/release/lifeos init          # tạo ~/lifeos (đổi bằng --home hoặc LIFEOS_HOME)
-$EDITOR ~/lifeos/CLAUDE.md            # viết về bạn; agent đọc file này mỗi lần trò chuyện
-```
-
-## Dùng
-
-| Kênh | Lệnh |
-|---|---|
-| Terminal | `lifeos chat` (thêm `-r` để tiếp tục cuộc trước), `lifeos ask "…"`, `lifeos today` |
-| Web | `lifeos web`, rồi mở http://127.0.0.1:7420 (thêm `--brief-at 06:30` để agent viết bản tin mỗi sáng) |
-| Telegram | `LIFEOS_TELEGRAM_TOKEN=… LIFEOS_TELEGRAM_ALLOWED_CHATS=<chat id> lifeos telegram` |
-| MCP | `claude mcp add lifeos -- lifeos mcp` |
-
-### Mở web qua Tailscale
+Cần Rust qua rustup, C toolchain, CMake, GNU Make, Node.js 22.12 trở lên và npm. Cài Claude Code, đăng nhập trước khi dùng các chức năng AI. Xem [hướng dẫn cài đặt](docs/getting-started.md) để biết phiên bản và cách xử lý lỗi build.
 
 ```sh
-make build && scripts/install-tailscale.sh
+git clone https://github.com/nguyenvanduocit/lifeos.git
+cd lifeos
+rustup toolchain install nightly --target wasm32-unknown-unknown
+cargo +nightly install wasm-bindgen-cli --version 0.2.130 --locked
+./scripts/setup.sh
+./target/release/lifeos init
+./target/release/lifeos web
 ```
 
-Lệnh này cài `lifeos web` thành LaunchAgent (bản tin buổi sáng lúc 06:30, đổi bằng `BRIEF_AT=07:00`, tắt bằng `BRIEF_AT=`), tự khởi động cùng máy và tự chạy lại khi chết. App mở ở `https://<máy>.<tailnet>.ts.net:8443` qua `tailscale serve`, chỉ trong tailnet. Link WebTransport (UDP 7421) nghe thẳng trên IP Tailscale, vì `tailscale serve` không chuyển UDP. Cert của link tự xoay mỗi 6 ngày. Log ở `~/Library/Logs/lifeos-web.log`. Web không có đăng nhập: ai trong tailnet của bạn cũng mở được.
+Mở [dashboard local](http://127.0.0.1:7420). Thử nhắn **“Thêm việc đọc sách tối nay rồi cho tôi xem kế hoạch hôm nay.”** Bạn có thể viết thêm thông tin về mình trong `~/lifeos/CLAUDE.md` để agent dùng khi trò chuyện.
 
-Nếu dùng tên miền riêng, cấu hình DNS trỏ về IP Tailscale của máy. Reverse proxy có thể lấy chứng chỉ qua DNS challenge, chỉ cho phép truy cập từ tailnet và chuyển HTTP vào `127.0.0.1:7420`. Link WebTransport vẫn đi trực tiếp qua UDP 7421.
+Web mặc định nghe trên máy local. Khi cần dùng từ thiết bị khác, hãy đọc [hướng dẫn triển khai qua Tailscale](docs/deployment.md) vì web và WebTransport không có đăng nhập tích hợp.
 
-Gỡ: `launchctl bootout gui/$(id -u)/com.lifeos.web && tailscale serve --https=8443 off`.
+## Tài liệu
 
-Chưa biết chat id Telegram của mình? Cứ chạy bot rồi nhắn cho nó; bot sẽ trả lời chat id của bạn.
+| Tài liệu | Nội dung |
+| --- | --- |
+| [Cài đặt và sử dụng](docs/getting-started.md) | Build, các lệnh CLI, web, Telegram, MCP và cấu hình |
+| [Dữ liệu và quyền riêng tư](docs/data.md) | Cấu trúc vault, sao lưu và luồng dữ liệu qua Claude Code |
+| [Triển khai](docs/deployment.md) | Local, Tailscale, LaunchAgent và kiểm tra WebTransport |
+| [Đóng góp](CONTRIBUTING.md) | Chạy môi trường dev, kiểm thử và gửi pull request |
+| [Kiến trúc](CLAUDE.md) | Các crate, giao thức WebTransport và quy tắc đồng bộ kiểu |
 
-Chọn model và mức suy nghĩ bằng `--model` / `LIFEOS_MODEL` và `--effort` / `LIFEOS_EFFORT`.
-
-## Vault
-
-```
-~/lifeos/
-  CLAUDE.md                 về bạn
-  tasks/*.md  goals/*.md  people/*.md  notes/*.md
-  reviews/2026-11-25-brief.md   bản tin và review agent viết
-  journal/2026/2026-11-25.md
-  .lifeos/lifeos.db         thói quen, liên lạc, giao dịch, ngân sách, chỉ số, inbox, index tìm kiếm — hãy sao lưu
-```
-
-Bạn có thể sửa file Markdown bằng bất kỳ trình soạn thảo nào, kể cả Obsidian; lifeos tự cập nhật lại index.
-
-Kiến trúc và quy tắc phát triển: xem `CLAUDE.md`.
+Mã nguồn theo giấy phép [MIT](LICENSE).
