@@ -25,6 +25,16 @@ $EDITOR ~/lifeos/CLAUDE.md            # viết về bạn; agent đọc file nà
 | Telegram | `LIFEOS_TELEGRAM_TOKEN=… LIFEOS_TELEGRAM_ALLOWED_CHATS=<chat id> lifeos telegram` |
 | MCP | `claude mcp add lifeos -- lifeos mcp` |
 
+### Mở web qua Tailscale
+
+```sh
+make build && scripts/install-tailscale.sh
+```
+
+Lệnh này cài `lifeos web` thành LaunchAgent, tự khởi động cùng máy và tự chạy lại khi chết. App mở ở `https://<máy>.<tailnet>.ts.net:8443` qua `tailscale serve`, chỉ trong tailnet. Link WebTransport (UDP 7421) nghe thẳng trên IP Tailscale, vì `tailscale serve` không chuyển UDP. Cert của link tự xoay mỗi 6 ngày. Log ở `~/Library/Logs/lifeos-web.log`. Web không có đăng nhập: ai trong tailnet của bạn cũng mở được.
+
+Gỡ: `launchctl bootout gui/$(id -u)/com.lifeos.web && tailscale serve --https=8443 off`.
+
 Chưa biết chat id Telegram của mình? Cứ chạy bot rồi nhắn cho nó; bot sẽ trả lời chat id của bạn.
 
 Chọn model và mức suy nghĩ bằng `--model` / `LIFEOS_MODEL` và `--effort` / `LIFEOS_EFFORT`.

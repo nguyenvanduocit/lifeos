@@ -2,14 +2,15 @@
 //! `/link.json` over HTTP, and the link — WebTransport over QUIC carrying
 //! `lifeos_wire` frames — on its own UDP port.
 //!
-//! There is no login: keep both ports on loopback (the default).
+//! There is no login: keep both ports on loopback (the default) or on a
+//! private network such as a tailnet, never on the open internet.
 
 mod cert;
 mod dist;
 mod link;
 
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result};
 use axum::Router;
@@ -39,8 +40,7 @@ pub(crate) struct AppState {
 
 struct HttpState {
     link: SocketAddr,
-    certificate_hash: String,
-    certificate_expires: String,
+    certificate: Arc<RwLock<cert::Published>>,
 }
 
 /// A running server: where it listens and the hash a client pins.
@@ -49,10 +49,19 @@ pub struct Running {
     pub link: SocketAddr,
     /// SHA-256 of the link's certificate, hex.
     pub certificate_hash: String,
+    endpoint: web_transport_quinn::quinn::Endpoint,
+    certificate: Arc<RwLock<cert::Published>>,
     http_task: tokio::task::JoinHandle<std::io::Result<()>>,
 }
 
 impl Running {
+    /// Puts a fresh certificate on the link now (the server also does this
+    /// on its own every few days); returns the new hash.
+    pub fn rotate_certificate(&self) -> Result<String> {
+        cert::rotate_once(&self.endpoint, &self.certificate)?;
+        Ok(self.certificate.read().expect("certificate lock").hash.clone())
+    }
+
     /// Serves until the HTTP server stops.
     pub async fn wait(self) -> Result<()> {
         self.http_task.await??;
@@ -70,22 +79,18 @@ pub async fn start(life: SharedLife, agent_config: AgentConfig, config: WebConfi
         .install_default()
         .ok();
     let cert = cert::Certificate::new(time::OffsetDateTime::now_utc())?;
-    let certificate_hash = hex(&cert.hash);
-    let certificate_expires = cert
-        .not_after
-        .format(&time::format_description::well_known::Rfc3339)?;
+    let published = Arc::new(RwLock::new(cert.published()?));
     let state = Arc::new(AppState {
         life,
         agent_config,
         agent: Mutex::new(None),
     });
 
-    let server = web_transport_quinn::ServerBuilder::new()
-        .with_addr(config.link)
-        .with_certificate(cert.chain, cert.key)
-        .context("cannot start the WebTransport listener")?;
-    let link = server.local_addr()?;
-    tokio::spawn(link::accept(server, state));
+    let endpoint = web_transport_quinn::quinn::Endpoint::server(cert.quic_config()?, config.link)
+        .with_context(|| format!("cannot listen for the link on udp {}", config.link))?;
+    let link = endpoint.local_addr()?;
+    tokio::spawn(cert::rotate(endpoint.clone(), published.clone()));
+    tokio::spawn(link::accept(web_transport_quinn::Server::new(endpoint.clone()), state));
 
     let listener = tokio::net::TcpListener::bind(config.http)
         .await
@@ -96,21 +101,29 @@ pub async fn start(life: SharedLife, agent_config: AgentConfig, config: WebConfi
         .fallback(dist::serve)
         .with_state(Arc::new(HttpState {
             link,
-            certificate_hash: certificate_hash.clone(),
-            certificate_expires,
+            certificate: published.clone(),
         }));
     let http_task = tokio::spawn(async move { axum::serve(listener, app).await });
     tracing::info!("lifeos web on http://{http} (link on udp {link})");
-    Ok(Running { http, link, certificate_hash, http_task })
+    let certificate_hash = published.read().expect("certificate lock").hash.clone();
+    Ok(Running {
+        http,
+        link,
+        certificate_hash,
+        endpoint,
+        certificate: published,
+        http_task,
+    })
 }
 
 /// Where the page finds the link.
 async fn link_json(State(state): State<Arc<HttpState>>, headers: HeaderMap) -> Json<LinkInfo> {
     let host = headers.get(axum::http::header::HOST).and_then(|h| h.to_str().ok());
+    let cert = state.certificate.read().expect("certificate lock").clone();
     Json(LinkInfo {
         url: link_url(state.link, host),
-        certificate_hashes: vec![state.certificate_hash.clone()],
-        certificate_expires: state.certificate_expires.clone(),
+        certificate_hashes: vec![cert.hash],
+        certificate_expires: cert.expires,
     })
 }
 
@@ -135,10 +148,6 @@ fn strip_port(host: &str) -> &str {
         Some(i) if !host[i..].contains(']') => &host[..i],
         _ => host,
     }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 #[cfg(test)]

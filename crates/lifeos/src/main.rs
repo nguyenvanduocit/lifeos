@@ -69,12 +69,20 @@ enum Command {
     /// Serve the tools over MCP on stdio (`claude mcp add lifeos -- lifeos mcp`).
     Mcp,
     /// Serve the web app (HTTP) and its WebTransport link (UDP).
+    ///
+    /// Behind `tailscale serve` (the page needs HTTPS for WebTransport), keep
+    /// HTTP on loopback and put the link on the machine's Tailscale IP:
+    /// `lifeos web --link-host 100.x.y.z`.
     Web {
-        #[arg(long, default_value = "127.0.0.1")]
+        /// Address for HTTP (the app and /link.json).
+        #[arg(long, default_value = "127.0.0.1", env = "LIFEOS_WEB_HOST")]
         host: IpAddr,
-        #[arg(long, default_value_t = 7420)]
+        #[arg(long, default_value_t = 7420, env = "LIFEOS_WEB_PORT")]
         port: u16,
-        #[arg(long, default_value_t = 7421)]
+        /// Address for the WebTransport link (UDP); defaults to --host.
+        #[arg(long, env = "LIFEOS_LINK_HOST")]
+        link_host: Option<IpAddr>,
+        #[arg(long, default_value_t = 7421, env = "LIFEOS_LINK_PORT")]
         link_port: u16,
     },
     /// Run the Telegram bot (long polling).
@@ -92,6 +100,8 @@ async fn main() -> Result<()> {
     // Logs go to stderr: stdout belongs to MCP in `lifeos mcp`.
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
+        // No colour codes in launchd log files.
+        .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
@@ -128,10 +138,10 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Mcp => lifeos_mcp::serve_stdio(&mut open()?),
-        Command::Web { host, port, link_port } => {
+        Command::Web { host, port, link_host, link_port } => {
             let config = lifeos_web::WebConfig {
                 http: SocketAddr::new(host, port),
-                link: SocketAddr::new(host, link_port),
+                link: SocketAddr::new(link_host.unwrap_or(host), link_port),
             };
             eprintln!("lifeos: http://{}", config.http);
             lifeos_web::serve(shared(open()?), agent_config, config).await

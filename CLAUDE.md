@@ -27,7 +27,8 @@ web/                 Vue 3 + Vite, chỉ vẽ những gì client wasm đưa cho
 - **Mỗi loại dữ liệu có một nguồn gốc duy nhất.** Markdown trong vault giữ phần văn bản (tasks, goals, journal, notes); bảng `docs`/`docs_fts` chỉ là index, xoá đi dựng lại được (`lifeos reindex`). SQLite giữ phần số liệu (`habit_logs`, `transactions`, `metrics`, `kv`). Tiền lưu theo đơn vị nhỏ nhất của từng loại tiền (`amount_minor`).
 - Người dùng có thể sửa file trong vault bằng tay. Gọi `sync_index()` trước khi đọc index, như các handler tool đang làm.
 - Agent không có Bash. Tool built-in bị giới hạn trong vault (`cwd`), và `PermissionMode::DontAsk` từ chối mọi thứ chưa được cho phép.
-- Web và link không có đăng nhập, nên chỉ chạy trên loopback. Telegram chỉ phục vụ các chat id được cho phép.
+- Web và link không có đăng nhập, nên chỉ chạy trên loopback hoặc tailnet (`scripts/install-tailscale.sh`), không bao giờ mở ra internet. Telegram chỉ phục vụ các chat id được cho phép.
+- Cert của link tự ký và được ghim bằng hash. Trình duyệt chỉ nhận cert ghim hash có hạn dưới 14 ngày, nên `cert::rotate` thay cert mới trên endpoint QUIC mỗi 6 ngày; session đang mở giữ cert cũ.
 - Dự án còn sơ khai: refactor thoải mái, không cần giữ tương thích ngược.
 
 ## Lệnh

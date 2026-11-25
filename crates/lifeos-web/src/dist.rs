@@ -12,9 +12,10 @@ use rust_embed::RustEmbed;
 #[allow_missing = true]
 struct Dist;
 
-/// Scripts and wasm from the app itself only; the link is the only connection.
+/// Scripts and wasm from the app itself only. `connect-src https:` lets the
+/// page dial the link wherever `/link.json` says it is (loopback, a tailnet).
 const CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; \
-                   img-src 'self' data: blob:; connect-src 'self' https://localhost:* https://127.0.0.1:* https://[::1]:*";
+                   img-src 'self' data: blob:; connect-src 'self' https:";
 
 pub async fn serve(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');

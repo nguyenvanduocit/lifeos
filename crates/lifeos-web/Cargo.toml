@@ -15,7 +15,7 @@ rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pe
 ring = "0.17.14"
 rust-embed = "8.14.0"
 time = { version = "0.3.55", features = ["formatting"] }
-tokio = { version = "1.54.1", features = ["macros", "net", "rt", "sync"] }
+tokio = { version = "1.54.1", features = ["macros", "net", "rt", "sync", "time"] }
 tracing = "0.1.44"
 web-transport-quinn = { version = "0.13.6", default-features = false, features = ["ring"] }
 
