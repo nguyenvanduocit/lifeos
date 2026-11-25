@@ -19,50 +19,51 @@ fn round_trip<T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + st
     assert_eq!(reader.pending(), 0);
 }
 
-fn doc(due: Option<&str>) -> DocSummary {
-    DocSummary {
+#[test]
+fn calls_and_replies() {
+    round_trip(Call::Read { tool: "dashboard".into(), input: "{}".into() });
+    round_trip(Call::Chat { message: "Hôm nay nên làm gì?".into() });
+    round_trip(Call::Brief);
+    round_trip(Call::History);
+    round_trip(Call::ResetChat);
+    round_trip(Call::Watch);
+    round_trip(Reply::Json("{\"tasks\":[]}".into()));
+    round_trip(Reply::Progress(Progress::Text("Để mình xem…".into())));
+    round_trip(Reply::Progress(Progress::Tool("add_task".into())));
+    let done = ChatDone { text: "Xong".into(), tools: vec!["add_task".into()], cost_usd: None };
+    round_trip(Reply::ChatDone(done.clone()));
+    round_trip(Reply::ChatDone(ChatDone { cost_usd: Some(0.01), ..done.clone() }));
+    round_trip(Reply::History(vec![Turn { ask: "Thêm việc".into(), reply: done }]));
+    round_trip(Reply::Changed(u64::MAX));
+    round_trip(Reply::Done);
+    round_trip(Reply::Failed("lỗi".into()));
+    round_trip(LinkInfo {
+        url: "https://127.0.0.1:7421/link".into(),
+        certificate_hashes: vec!["ab".into()],
+        certificate_expires: "2026-12-08T00:00:00Z".into(),
+    });
+}
+
+/// Views cross as JSON inside `Reply::Json`; they must survive it too.
+#[test]
+fn views_survive_json() {
+    let doc = DocSummary {
         id: "goi-me".into(),
         kind: Kind::Task,
         title: "Gọi mẹ".into(),
         status: Some("open".into()),
-        due: due.map(Into::into),
+        due: Some("2026-11-20".into()),
+        scheduled: None,
+        priority: Some("high".into()),
         goal: None,
         horizon: None,
+        progress: None,
+        tags: vec!["gia đình".into()],
         path: "tasks/goi-me.md".into(),
-    }
-}
-
-#[test]
-fn calls_and_replies() {
-    round_trip(Call::Today);
-    round_trip(Call::Chat { message: "Hôm nay nên làm gì?".into() });
-    round_trip(Call::ResetChat);
-    round_trip(Reply::Progress(Progress::Text("Để mình xem…".into())));
-    round_trip(Reply::Progress(Progress::Tool("mcp__lifeos__today".into())));
-    round_trip(Reply::ChatDone(ChatDone { text: "Xong".into(), tools: vec!["today".into()], cost_usd: None }));
-    round_trip(Reply::Done);
-    round_trip(Reply::Failed("lỗi".into()));
-}
-
-#[test]
-fn today_with_every_optional_both_ways() {
-    round_trip(Reply::Today(Today {
-        date: "2026-11-25".into(),
-        weekday: "Wednesday".into(),
-        overdue_tasks: vec![doc(Some("2026-11-20"))],
-        due_today: vec![doc(None)],
-        open_tasks_without_due: 3,
-        active_goals: vec![],
-        habits: vec![HabitStatus { habit: "thiền".into(), done_today: true, streak: 4, days_done_in_window: 5, window_days: 7 }],
-        money_today: vec![CurrencySummary {
-            currency: "VND".into(),
-            income: 0.0,
-            spending: 75_000.0,
-            net: -75_000.0,
-            spending_by_category: vec![CategoryAmount { category: "ăn uống".into(), amount: 75_000.0 }],
-        }],
-        journal_written: false,
-    }));
+    };
+    let json = serde_json::to_string(&doc).unwrap();
+    assert_eq!(serde_json::from_str::<DocSummary>(&json).unwrap(), doc);
+    assert!(json.contains("\"kind\":\"task\""), "{json}");
 }
 
 #[test]

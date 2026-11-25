@@ -1,7 +1,7 @@
 //! The vault: plain Markdown files with YAML frontmatter.
 //!
 //! Markdown is the source of truth for everything that is mostly text:
-//! tasks, goals, journal entries and notes. The SQLite index is derived from
+//! tasks, goals, people, journal entries, notes and the agent's reviews. The SQLite index is derived from
 //! it and can be rebuilt at any time.
 
 use std::collections::BTreeMap;
@@ -19,8 +19,10 @@ pub fn folder(kind: Kind) -> &'static str {
     match kind {
         Kind::Task => "tasks",
         Kind::Goal => "goals",
+        Kind::Person => "people",
         Kind::Journal => "journal",
         Kind::Note => "notes",
+        Kind::Review => "reviews",
     }
 }
 
@@ -33,10 +35,28 @@ pub struct Frontmatter {
     pub status: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub due: Option<NaiveDate>,
+    /// Task: the day it is planned for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled: Option<NaiveDate>,
+    /// Task: high | normal | low.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub horizon: Option<String>,
+    /// Goal: 0–100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<u8>,
+    /// Person: how they relate to the user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relation: Option<String>,
+    /// Person: `YYYY-MM-DD` or `MM-DD`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub birthday: Option<String>,
+    /// Person: be in touch at least this often.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contact_every_days: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -69,7 +89,8 @@ impl Doc {
             Some((yaml, body)) => {
                 let meta: Frontmatter = serde_yaml::from_str(yaml)
                     .with_context(|| format!("invalid frontmatter in {rel_path}"))?;
-                (meta, body.to_string())
+                // `render` puts a blank line after the frontmatter; it is not part of the body.
+                (meta, body.trim_start_matches(['\r', '\n']).to_string())
             }
             None => (
                 Frontmatter {
@@ -215,10 +236,10 @@ mod tests {
         let doc = Doc::parse(Kind::Task, "tasks/mua-sach.md".into(), text).unwrap();
         assert_eq!(doc.id, "mua-sach");
         assert_eq!(doc.meta.title, "Mua sách");
-        assert_eq!(doc.body, "\nghi chú\n");
+        assert_eq!(doc.body, "ghi chú\n");
         let again = Doc::parse(Kind::Task, doc.rel_path.clone(), &doc.render().unwrap()).unwrap();
         assert_eq!(again.meta.extra.get("mood"), doc.meta.extra.get("mood"));
-        assert_eq!(again.body.trim(), "ghi chú");
+        assert_eq!(again.body, doc.body);
     }
 
     #[test]

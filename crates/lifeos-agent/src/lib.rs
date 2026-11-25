@@ -35,7 +35,34 @@ pub struct AgentConfig {
     pub resume: Option<String>,
     /// Stop a single prompt after this many model turns.
     pub max_turns: Option<u32>,
+    /// Called after every `write` tool the agent runs.
+    pub on_change: OnChange,
 }
+
+/// A callback for "the data changed", e.g. to refresh open dashboards.
+#[derive(Clone, Default)]
+pub struct OnChange(Option<Arc<dyn Fn() + Send + Sync>>);
+
+impl OnChange {
+    pub fn new(f: impl Fn() + Send + Sync + 'static) -> OnChange {
+        OnChange(Some(Arc::new(f)))
+    }
+
+    pub fn fire(&self) {
+        if let Some(f) = &self.0 {
+            f();
+        }
+    }
+}
+
+impl std::fmt::Debug for OnChange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "OnChange(set)" } else { "OnChange(none)" })
+    }
+}
+
+/// What the page sends when the user asks for the morning brief.
+pub const BRIEF_PROMPT: &str = "Viết bản tin buổi sáng cho hôm nay.";
 
 pub use lifeos_wire::Progress;
 
@@ -54,7 +81,7 @@ pub struct LifeAgent {
 impl LifeAgent {
     pub async fn spawn(life: SharedLife, config: AgentConfig) -> Result<LifeAgent> {
         let home = life.lock().expect("life lock").home().to_path_buf();
-        let server = tool_server(life);
+        let server = tool_server(life, config.on_change.clone());
         let mut allowed: Vec<String> = BUILTIN_TOOLS.iter().map(|t| t.to_string()).collect();
         allowed.extend(server.qualified_tool_names());
 
@@ -99,7 +126,7 @@ impl LifeAgent {
                     on_progress(Progress::Text(t.clone()));
                     text.push_str(&t);
                 }
-                AgentEvent::ToolUse { name, .. } => on_progress(Progress::Tool(name)),
+                AgentEvent::ToolUse { name, .. } => on_progress(Progress::Tool(short_tool_name(&name))),
                 AgentEvent::Done(result) => {
                     return Ok(Reply {
                         text: if text.is_empty() { result.result.unwrap_or_default() } else { text },
@@ -123,8 +150,13 @@ impl LifeAgent {
     }
 }
 
+/// `mcp__lifeos__add_task` → `add_task`; built-in tools keep their name.
+pub fn short_tool_name(name: &str) -> String {
+    name.strip_prefix("mcp__lifeos__").unwrap_or(name).to_string()
+}
+
 /// `lifeos_core::tools` as an in-process MCP server named `lifeos`.
-fn tool_server(life: SharedLife) -> SdkMcpServer {
+fn tool_server(life: SharedLife, on_change: OnChange) -> SdkMcpServer {
     tools::specs().into_iter().fold(SdkMcpServer::new("lifeos"), |server, spec| {
         let def = ToolDef {
             name: spec.name.to_string(),
@@ -138,17 +170,20 @@ fn tool_server(life: SharedLife) -> SdkMcpServer {
             }),
         };
         let life = life.clone();
-        let name = spec.name;
+        let on_change = on_change.clone();
+        let (name, writes) = (spec.name, !spec.read_only);
         server.tool(SdkTool::new(def, move |args| {
             let life = life.clone();
+            let on_change = on_change.clone();
             async move {
-                let mut life = life.lock().expect("life lock");
-                // Pick up files the model or the user changed by hand.
-                if let Err(err) = life.sync_index() {
-                    tracing::warn!("index sync failed: {err:#}");
-                }
-                match tools::call(&mut life, name, args) {
-                    Ok(value) => ToolResult::text(value.to_string()),
+                let result = tools::call(&mut life.lock().expect("life lock"), name, args);
+                match result {
+                    Ok(value) => {
+                        if writes {
+                            on_change.fire();
+                        }
+                        ToolResult::text(value.to_string())
+                    }
                     Err(err) => ToolResult::error(format!("{err:#}")),
                 }
             }

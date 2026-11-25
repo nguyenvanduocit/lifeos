@@ -8,6 +8,7 @@
 #
 #   HTTPS_PORT  default 8443 (443 is often taken by a local web server)
 #   LIFEOS_HOME default ~/lifeos
+#   BRIEF_AT    local time the agent writes the morning brief, default 06:30; empty turns it off
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -15,6 +16,7 @@ https_port=${HTTPS_PORT:-8443}
 http_port=7420
 link_port=7421
 home=${LIFEOS_HOME:-$HOME/lifeos}
+brief_at=${BRIEF_AT-06:30}
 bin=$HOME/.local/bin/lifeos
 label=com.lifeos.web
 plist=$HOME/Library/LaunchAgents/$label.plist
@@ -45,7 +47,7 @@ cat > "$plist" <<EOF
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>LIFEOS_HOME</key><string>$home</string>
+    <key>LIFEOS_HOME</key><string>$home</string>$([ -n "$brief_at" ] && printf '\n    <key>LIFEOS_BRIEF_AT</key><string>%s</string>' "$brief_at")
     <key>PATH</key><string>$(dirname "$bin"):/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
   </dict>
   <key>RunAtLoad</key><true/>

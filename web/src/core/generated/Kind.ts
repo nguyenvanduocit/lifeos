@@ -3,4 +3,4 @@
 /**
  * What a document is.
  */
-export type Kind = "task" | "goal" | "journal" | "note";
+export type Kind = "task" | "goal" | "person" | "journal" | "note" | "review";

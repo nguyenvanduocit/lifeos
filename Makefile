@@ -3,9 +3,9 @@
 deps:            ## npm packages for the Vue app
 	cd web && npm install
 
-gen:             ## TypeScript of lifeos-wire's types -> web/src/core/generated
+gen:             ## TypeScript of lifeos-wire types and tool inputs -> web/src/core/generated
 	rm -rf web/src/core/generated
-	cargo test -q -p lifeos-wire --features ts
+	cargo test -q -p lifeos-wire -p lifeos-core --features ts
 
 check-gen: gen   ## fails when the generated TypeScript is out of date
 	git diff --exit-code -- web/src/core/generated

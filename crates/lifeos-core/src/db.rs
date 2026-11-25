@@ -3,8 +3,9 @@
 //! Two roles, kept apart:
 //! - **Index** (`docs`, `docs_fts`): derived from the Markdown vault, safe to
 //!   drop and rebuild with `lifeos reindex`.
-//! - **Records** (`habit_logs`, `transactions`, `metrics`, `kv`): numeric data
-//!   whose source of truth is this database. Back it up.
+//! - **Records** (`habits`, `habit_logs`, `interactions`, `transactions`,
+//!   `budgets`, `metrics`, `inbox`, `kv`): data whose source of truth is this
+//!   database. Back it up.
 
 use std::path::Path;
 
@@ -63,6 +64,70 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX metrics_name_day ON metrics(name, day);
 
     CREATE TABLE kv(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    "#,
+    // v2: people, habit definitions, budgets, inbox; the index carries the new
+    // frontmatter fields (it is derived: dropped here, rebuilt on open).
+    r#"
+    DROP TABLE docs;
+    DROP TABLE docs_fts;
+    CREATE TABLE docs(
+        path          TEXT PRIMARY KEY,
+        kind          TEXT NOT NULL,
+        id            TEXT NOT NULL,
+        title         TEXT NOT NULL,
+        status        TEXT,
+        due           TEXT,
+        scheduled     TEXT,
+        priority      TEXT,
+        goal          TEXT,
+        horizon       TEXT,
+        progress      INTEGER,
+        relation      TEXT,
+        birthday      TEXT,
+        contact_every INTEGER,
+        completed     TEXT,
+        tags          TEXT NOT NULL DEFAULT '',
+        mtime         INTEGER NOT NULL
+    );
+    CREATE INDEX docs_kind_status ON docs(kind, status);
+    CREATE INDEX docs_kind_id ON docs(kind, id);
+    CREATE VIRTUAL TABLE docs_fts USING fts5(
+        path UNINDEXED, title, body,
+        tokenize = 'unicode61 remove_diacritics 2'
+    );
+
+    CREATE TABLE habits(
+        name            TEXT PRIMARY KEY,
+        unit            TEXT,
+        target_per_week INTEGER NOT NULL DEFAULT 7,
+        created         TEXT NOT NULL,
+        archived        INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT INTO habits(name, created) SELECT habit, MIN(day) FROM habit_logs GROUP BY habit;
+
+    -- person: the id (file stem) of a document in people/.
+    CREATE TABLE interactions(
+        id      INTEGER PRIMARY KEY,
+        person  TEXT NOT NULL,
+        day     TEXT NOT NULL,
+        channel TEXT,
+        note    TEXT
+    );
+    CREATE INDEX interactions_person_day ON interactions(person, day);
+
+    CREATE TABLE budgets(
+        category      TEXT NOT NULL,
+        currency      TEXT NOT NULL,
+        monthly_minor INTEGER NOT NULL,
+        PRIMARY KEY(category, currency)
+    );
+
+    CREATE TABLE inbox(
+        id      INTEGER PRIMARY KEY,
+        created TEXT NOT NULL,
+        text    TEXT NOT NULL,
+        done    INTEGER NOT NULL DEFAULT 0
+    );
     "#,
 ];
 

@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+chrono = "0.4.45"
 anyhow = "1.0.105"
 clap = { version = "4.6.10", features = ["derive", "env"] }
 lifeos-agent = { version = "0.1.0", path = "../lifeos-agent" }

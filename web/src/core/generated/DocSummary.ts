@@ -5,7 +5,19 @@ export type DocSummary = {
 /**
  * File stem: the handle tools take.
  */
-id: string, kind: Kind, title: string, status: string | null, due: string | null, goal: string | null, horizon: string | null, 
+id: string, kind: Kind, title: string, status: string | null, due: string | null, 
+/**
+ * Task: the day it is planned for (not a deadline).
+ */
+scheduled: string | null, 
+/**
+ * Task: "high", "normal" or "low".
+ */
+priority: string | null, goal: string | null, horizon: string | null, 
+/**
+ * Goal: 0–100.
+ */
+progress: number | null, tags: Array<string>, 
 /**
  * Relative to the vault root.
  */

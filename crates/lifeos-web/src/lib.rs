@@ -5,6 +5,7 @@
 //! There is no login: keep both ports on loopback (the default) or on a
 //! private network such as a tailnet, never on the open internet.
 
+mod brief;
 mod cert;
 mod dist;
 mod link;
@@ -19,8 +20,9 @@ use axum::http::HeaderMap;
 use axum::routing::get;
 use axum::Json;
 use lifeos_agent::{AgentConfig, LifeAgent, SharedLife};
-use lifeos_wire::{LinkInfo, PATH};
-use tokio::sync::Mutex;
+use lifeos_agent::OnChange;
+use lifeos_wire::{LinkInfo, PATH, Turn};
+use tokio::sync::{Mutex, watch};
 
 #[derive(Debug, Clone, Copy)]
 pub struct WebConfig {
@@ -28,6 +30,8 @@ pub struct WebConfig {
     pub http: SocketAddr,
     /// WebTransport (UDP).
     pub link: SocketAddr,
+    /// Have the agent write the morning brief at this local time each day.
+    pub brief_at: Option<chrono::NaiveTime>,
 }
 
 pub(crate) struct AppState {
@@ -36,6 +40,16 @@ pub(crate) struct AppState {
     /// One conversation for the web app, started on the first message so the
     /// dashboard works without Claude Code.
     pub agent: Mutex<Option<LifeAgent>>,
+    /// That conversation, for pages opened later.
+    pub history: std::sync::Mutex<Vec<Turn>>,
+    /// Grows on every change; open pages watch it to read again.
+    pub changes: watch::Sender<u64>,
+}
+
+impl AppState {
+    pub fn bump(&self) {
+        self.changes.send_modify(|n| *n += 1);
+    }
 }
 
 struct HttpState {
@@ -74,23 +88,35 @@ pub async fn serve(life: SharedLife, agent_config: AgentConfig, config: WebConfi
 }
 
 /// Binds both ports (port 0 picks a free one) and serves in the background.
-pub async fn start(life: SharedLife, agent_config: AgentConfig, config: WebConfig) -> Result<Running> {
+pub async fn start(life: SharedLife, mut agent_config: AgentConfig, config: WebConfig) -> Result<Running> {
     web_transport_quinn::quinn::rustls::crypto::ring::default_provider()
         .install_default()
         .ok();
     let cert = cert::Certificate::new(time::OffsetDateTime::now_utc())?;
     let published = Arc::new(RwLock::new(cert.published()?));
+    let (changes, _) = watch::channel(0);
+    let on_change = {
+        let changes = changes.clone();
+        OnChange::new(move || changes.send_modify(|n| *n += 1))
+    };
+    agent_config.on_change = on_change;
     let state = Arc::new(AppState {
         life,
         agent_config,
         agent: Mutex::new(None),
+        history: Default::default(),
+        changes,
     });
+    tokio::spawn(notice_outside_changes(state.clone()));
+    if let Some(at) = config.brief_at {
+        tokio::spawn(brief::daily(state.clone(), at));
+    }
 
     let endpoint = web_transport_quinn::quinn::Endpoint::server(cert.quic_config()?, config.link)
         .with_context(|| format!("cannot listen for the link on udp {}", config.link))?;
     let link = endpoint.local_addr()?;
     tokio::spawn(cert::rotate(endpoint.clone(), published.clone()));
-    tokio::spawn(link::accept(web_transport_quinn::Server::new(endpoint.clone()), state));
+    tokio::spawn(link::accept(web_transport_quinn::Server::new(endpoint.clone()), state.clone()));
 
     let listener = tokio::net::TcpListener::bind(config.http)
         .await
@@ -114,6 +140,34 @@ pub async fn start(life: SharedLife, agent_config: AgentConfig, config: WebConfi
         certificate: published,
         http_task,
     })
+}
+
+/// How often to look for changes made outside this server: files edited by
+/// hand, or the database written by `lifeos mcp`, the Telegram bot, the CLI.
+const OUTSIDE_CHANGES_EVERY: std::time::Duration = std::time::Duration::from_secs(3);
+
+async fn notice_outside_changes(state: Arc<AppState>) {
+    let mut last_version = None;
+    loop {
+        tokio::time::sleep(OUTSIDE_CHANGES_EVERY).await;
+        let changed = {
+            let mut life = state.life.lock().expect("life lock");
+            let files = match life.sync_index() {
+                Ok(stats) => stats.indexed + stats.removed > 0,
+                Err(err) => {
+                    tracing::warn!("index sync failed: {err:#}");
+                    false
+                }
+            };
+            let version = life.data_version().ok();
+            let db = last_version.is_some() && version != last_version;
+            last_version = version;
+            files || db
+        };
+        if changed {
+            state.bump();
+        }
+    }
 }
 
 /// Where the page finds the link.

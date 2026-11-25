@@ -51,7 +51,7 @@ pub fn handle_line(life: &mut Life, line: &str) -> Option<Value> {
                 "protocolVersion": version,
                 "capabilities": { "tools": {} },
                 "serverInfo": { "name": "lifeos", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Tools over the user's lifeos: goals, tasks, journal, notes, habits, money and health metrics. Call `today` for an overview."
+                "instructions": "Tools over the user's lifeos: tasks, goals, habits, people, money, health, journal, notes, reviews and an inbox. Call `dashboard` for an overview."
             })
         }
         "ping" => json!({}),
@@ -66,9 +66,6 @@ pub fn handle_line(life: &mut Life, line: &str) -> Option<Value> {
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
             let args = params.get("arguments").cloned().unwrap_or(Value::Null);
-            if let Err(err) = life.sync_index() {
-                eprintln!("lifeos: index sync failed: {err:#}");
-            }
             match tools::call(life, name, args) {
                 Ok(value) => json!({
                     "content": [{ "type": "text", "text": value.to_string() }],

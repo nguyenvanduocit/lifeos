@@ -5,3 +5,5 @@ rustflags = ["--cfg=web_sys_unstable_apis"]
 [env]
 # Where ts-rs writes the TypeScript of lifeos-wire's types.
 TS_RS_EXPORT_DIR = { value = "web/src/core/generated", relative = true }
+# The page gets plain JSON numbers (serde-wasm-bindgen `json_compatible`), never bigint.
+TS_RS_LARGE_INT = "number"

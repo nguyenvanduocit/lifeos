@@ -1194,6 +1194,7 @@ name = "lifeos"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "lifeos-agent",
  "lifeos-core",
@@ -1237,6 +1238,7 @@ dependencies = [
  "serde_yaml",
  "tempfile",
  "tracing",
+ "ts-rs",
  "walkdir",
 ]
 
@@ -1269,6 +1271,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "chrono",
  "lifeos-agent",
  "lifeos-core",
  "lifeos-wire",
@@ -1276,6 +1279,7 @@ dependencies = [
  "rcgen",
  "ring",
  "rust-embed",
+ "serde_json",
  "tempfile",
  "time",
  "tokio",
@@ -1304,6 +1308,7 @@ version = "0.1.0"
 dependencies = [
  "postcard",
  "serde",
+ "serde_json",
  "ts-rs",
 ]
 
@@ -2635,6 +2640,7 @@ version = "12.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "756050066659291d47a554a9f558125db17428b073c5ffce1daf5dcb0f7231d8"
 dependencies = [
+ "chrono",
  "thiserror 2.0.21",
  "ts-rs-macros",
 ]

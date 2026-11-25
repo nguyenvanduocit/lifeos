@@ -5,7 +5,8 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use lifeos_core::Life;
-use lifeos_wire::{Call, Reader, Reply, encode};
+use lifeos_core::life::tasks::AddTask;
+use lifeos_wire::{Call, Dashboard, Reader, Reply, encode};
 use web_transport_quinn::ClientBuilder;
 
 async fn call(session: &web_transport_quinn::Session, call: &Call) -> Reply {
@@ -33,35 +34,68 @@ async fn dial(link: SocketAddr, hash: &str) -> Result<web_transport_quinn::Sessi
     }
 }
 
+fn config() -> lifeos_web::WebConfig {
+    let any: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    lifeos_web::WebConfig { http: any, link: any, brief_at: None }
+}
+
+fn read(tool: &str, input: &str) -> Call {
+    Call::Read { tool: tool.into(), input: input.into() }
+}
+
 #[tokio::test]
-async fn today_over_webtransport() {
+async fn the_page_reads_but_never_writes() {
     let dir = tempfile::tempdir().unwrap();
     let life = Life::open_with_memory_db(dir.path()).unwrap();
-    life.add_task("Gọi mẹ", Some(lifeos_core::life::today()), None, vec![], None).unwrap();
+    let due = Some(lifeos_core::life::today());
+    life.add_task(AddTask { title: "Gọi mẹ".into(), due, ..Default::default() }).unwrap();
     let life = Arc::new(Mutex::new(life));
-
-    let any: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let config = lifeos_web::WebConfig { http: any, link: any };
-    let running = lifeos_web::start(life, Default::default(), config).await.unwrap();
-
+    let running = lifeos_web::start(life, Default::default(), config()).await.unwrap();
     let session = dial(running.link, &running.certificate_hash).await.unwrap();
 
-    let Reply::Today(today) = call(&session, &Call::Today).await else { panic!("not Today") };
-    assert_eq!(today.due_today.len(), 1);
-    assert_eq!(today.due_today[0].title, "Gọi mẹ");
+    let Reply::Json(json) = call(&session, &read("dashboard", "")).await else { panic!("not Json") };
+    let dashboard: Dashboard = serde_json::from_str(&json).unwrap();
+    assert_eq!(dashboard.tasks.today.len(), 1);
+    assert_eq!(dashboard.tasks.today[0].title, "Gọi mẹ");
 
-    // Resetting a conversation that never started is fine and needs no Claude.
+    let Reply::Failed(why) = call(&session, &read("add_task", r#"{"title":"x"}"#)).await else {
+        panic!("a write went through")
+    };
+    assert!(why.contains("ask the agent"), "{why}");
+    assert!(matches!(call(&session, &read("nope", "{}")).await, Reply::Failed(_)));
+    assert!(matches!(call(&session, &read("list_tasks", "{bad")).await, Reply::Failed(_)));
+
+    // No conversation yet, and resetting one that never started needs no Claude.
+    assert_eq!(call(&session, &Call::History).await, Reply::History(vec![]));
     assert_eq!(call(&session, &Call::ResetChat).await, Reply::Done);
+}
+
+#[tokio::test]
+async fn watch_streams_the_current_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let life = Arc::new(Mutex::new(Life::open_with_memory_db(dir.path()).unwrap()));
+    let running = lifeos_web::start(life, Default::default(), config()).await.unwrap();
+    let session = dial(running.link, &running.certificate_hash).await.unwrap();
+
+    let (mut send, mut recv) = session.open_bi().await.unwrap();
+    send.write_all(&encode(&Call::Watch).unwrap()).await.unwrap();
+    send.finish().unwrap();
+    let mut reader = Reader::default();
+    let first = loop {
+        if let Some(reply) = reader.next_frame::<Reply>().unwrap() {
+            break reply;
+        }
+        let chunk = recv.read_chunk(1024, true).await.unwrap().expect("stream open");
+        reader.push(&chunk.bytes);
+    };
+    assert_eq!(first, Reply::Changed(0));
 }
 
 #[tokio::test]
 async fn rotating_the_certificate_keeps_open_sessions_and_pins_the_new_hash() {
     let dir = tempfile::tempdir().unwrap();
     let life = Arc::new(Mutex::new(Life::open_with_memory_db(dir.path()).unwrap()));
-    let any: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let running = lifeos_web::start(life, Default::default(), lifeos_web::WebConfig { http: any, link: any })
-        .await
-        .unwrap();
+    let running = lifeos_web::start(life, Default::default(), config()).await.unwrap();
 
     let old = running.certificate_hash.clone();
     let open = dial(running.link, &old).await.unwrap();
@@ -69,9 +103,9 @@ async fn rotating_the_certificate_keeps_open_sessions_and_pins_the_new_hash() {
     assert_ne!(old, new);
 
     // A session opened before the swap goes on working.
-    assert!(matches!(call(&open, &Call::Today).await, Reply::Today(_)));
+    assert!(matches!(call(&open, &read("dashboard", "{}")).await, Reply::Json(_)));
     // New sessions get the new certificate: the old pin no longer matches.
     assert!(dial(running.link, &old).await.is_err());
     let fresh = dial(running.link, &new).await.unwrap();
-    assert!(matches!(call(&fresh, &Call::Today).await, Reply::Today(_)));
+    assert!(matches!(call(&fresh, &read("dashboard", "{}")).await, Reply::Json(_)));
 }

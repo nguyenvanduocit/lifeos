@@ -61,10 +61,18 @@ impl Link {
         Ok(Link { session })
     }
 
-    /// Resolves to a `Today`.
-    pub fn today(&self) -> Promise {
+    /// Runs a `read` tool. `input` is a plain object (or undefined); resolves
+    /// to the tool's output, typed by `ReadTools` in the generated TypeScript.
+    pub fn read(&self, tool: String, input: JsValue) -> Promise {
         let session = self.session.clone();
-        future_to_promise(async move { finish(call(&session, Call::Today, None).await?) })
+        future_to_promise(async move {
+            let input = if input.is_undefined() || input.is_null() {
+                "{}".to_string()
+            } else {
+                js_sys::JSON::stringify(&input)?.as_string().unwrap_or_default()
+            };
+            finish(call(&session, Call::Read { tool, input }, None).await?)
+        })
     }
 
     /// Sends one message to the agent. `onProgress` receives each `Progress`
@@ -73,6 +81,44 @@ impl Link {
         let session = self.session.clone();
         future_to_promise(async move {
             finish(call(&session, Call::Chat { message }, Some(on_progress)).await?)
+        })
+    }
+
+    /// Asks the agent to write today's morning brief; like `chat`.
+    pub fn brief(&self, on_progress: Function) -> Promise {
+        let session = self.session.clone();
+        future_to_promise(async move { finish(call(&session, Call::Brief, Some(on_progress)).await?) })
+    }
+
+    /// Resolves to the conversation so far, a `Turn[]`.
+    pub fn history(&self) -> Promise {
+        let session = self.session.clone();
+        future_to_promise(async move { finish(call(&session, Call::History, None).await?) })
+    }
+
+    /// Calls `onChange(revision)` now and whenever the data changes. Resolves
+    /// when the server stops sending (the link is gone).
+    pub fn watch(&self, on_change: Function) -> Promise {
+        let session = self.session.clone();
+        future_to_promise(async move {
+            let err = |e: web_transport::Error| JsError::new(&format!("lifeos: link: {e}"));
+            let (mut send, mut recv) = session.open_bi().await.map_err(err)?;
+            send.write(&encode(&Call::Watch).map_err(|e| JsError::new(&e.to_string()))?).await.map_err(err)?;
+            send.finish().map_err(err)?;
+            let mut reader = Reader::default();
+            while let Some(chunk) = recv.read(CHUNK).await.map_err(err)? {
+                reader.push(&chunk);
+                while let Some(reply) = reader.next_frame::<Reply>().map_err(|e| JsError::new(&e.to_string()))? {
+                    match reply {
+                        Reply::Changed(revision) => {
+                            on_change.call1(&JsValue::NULL, &JsValue::from_f64(revision as f64))?;
+                        }
+                        Reply::Failed(message) => return Err(JsError::new(&message).into()),
+                        _ => return Err(JsError::new("lifeos: unexpected reply on the watch stream").into()),
+                    }
+                }
+            }
+            Ok(JsValue::UNDEFINED)
         })
     }
 
@@ -97,11 +143,12 @@ impl Link {
 /// The final reply as the promise's value; `Failed` rejects it.
 fn finish(reply: Reply) -> Result<JsValue, JsValue> {
     match reply {
-        Reply::Today(today) => Ok(to_js(&today)?),
+        Reply::Json(json) => js_sys::JSON::parse(&json),
         Reply::ChatDone(done) => Ok(to_js(&done)?),
+        Reply::History(turns) => Ok(to_js(&turns)?),
         Reply::Done => Ok(JsValue::UNDEFINED),
         Reply::Failed(message) => Err(JsError::new(&message).into()),
-        Reply::Progress(_) => Err(JsError::new("lifeos: the call ended on a progress frame").into()),
+        Reply::Progress(_) | Reply::Changed(_) => Err(JsError::new("lifeos: unexpected final reply").into()),
     }
 }
 

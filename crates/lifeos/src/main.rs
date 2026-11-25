@@ -54,7 +54,7 @@ impl From<EffortArg> for Effort {
 enum Command {
     /// Create the vault and a CLAUDE.md for you to describe yourself.
     Init,
-    /// Print today's overview (no AI).
+    /// Print today's dashboard as JSON (no AI).
     Today,
     /// Rebuild the search index from the Markdown files.
     Reindex,
@@ -84,6 +84,9 @@ enum Command {
         link_host: Option<IpAddr>,
         #[arg(long, default_value_t = 7421, env = "LIFEOS_LINK_PORT")]
         link_port: u16,
+        /// Have the agent write the morning brief daily at this local time, e.g. 06:30.
+        #[arg(long, env = "LIFEOS_BRIEF_AT")]
+        brief_at: Option<chrono::NaiveTime>,
     },
     /// Run the Telegram bot (long polling).
     Telegram {
@@ -120,7 +123,7 @@ async fn main() -> Result<()> {
         Command::Init => init(&home),
         Command::Today => {
             let life = open()?;
-            let today = life.today(lifeos_core::life::today())?;
+            let today = life.dashboard(lifeos_core::life::today())?;
             println!("{}", serde_json::to_string_pretty(&today)?);
             Ok(())
         }
@@ -138,10 +141,11 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Mcp => lifeos_mcp::serve_stdio(&mut open()?),
-        Command::Web { host, port, link_host, link_port } => {
+        Command::Web { host, port, link_host, link_port, brief_at } => {
             let config = lifeos_web::WebConfig {
                 http: SocketAddr::new(host, port),
                 link: SocketAddr::new(link_host.unwrap_or(host), link_port),
+                brief_at,
             };
             eprintln!("lifeos: http://{}", config.http);
             lifeos_web::serve(shared(open()?), agent_config, config).await

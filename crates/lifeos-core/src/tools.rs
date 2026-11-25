@@ -1,25 +1,80 @@
-//! The tool surface: the one list of operations exposed to models.
+//! The tool surface: the one list of operations on a life.
 //!
-//! Each tool is declared once in `tools!` below — its name, description, typed
-//! input and handler. The JSON schema comes from the input type, so schema
-//! and parser cannot drift. The agent (in-process MCP), the stdio MCP server
-//! and the web API all read `specs()` and dispatch through `call()`.
+//! Each tool is declared once in `tools!` below: its access (`read` or
+//! `write`), name, typed input and output, description and handler. The JSON
+//! schema comes from the input type, so schema and parser cannot drift. The
+//! agent (in-process MCP), the stdio MCP server and the web link all read
+//! `specs()` and dispatch through `call()`.
+//!
+//! Only the agent writes. The web link calls `read` tools to draw the
+//! dashboard; every change goes through a conversation with the agent.
 
 use anyhow::{Context, Result};
-use chrono::{Datelike, Duration, NaiveDate};
+use chrono::NaiveDate;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::life::goals::*;
+use crate::life::habits::*;
+use crate::life::health::*;
+use crate::life::inbox::*;
+use crate::life::money::*;
+use crate::life::notes::*;
+use crate::life::people::*;
+use crate::life::tasks::*;
 use crate::life::{Life, today};
+use lifeos_wire::*;
 
 #[derive(Debug, Clone)]
 pub struct ToolSpec {
     pub name: &'static str,
     pub description: &'static str,
     pub input_schema: Value,
-    /// Only reads; safe to call without the user's say-so.
+    /// Only reads: safe to call without the user's say-so, and from the web app.
     pub read_only: bool,
+}
+
+input! {
+    pub struct Day {
+        /// YYYY-MM-DD. Defaults to today.
+        pub date: Option<NaiveDate>,
+    }
+}
+
+input! {
+    pub struct DocId {
+        /// Document id (file name without .md), or its path in the vault.
+        pub id: String,
+    }
+}
+
+input! {
+    /// A row in one of lifeos's tables (a transaction, measurement, interaction, inbox item).
+    pub struct RowId {
+        pub id: i64,
+    }
+}
+
+input! {
+    pub struct Search {
+        pub query: String,
+        /// Defaults to 10.
+        pub limit: Option<u32>,
+    }
+}
+
+input! {
+    pub struct ListReviews {
+        /// Omit for every kind.
+        pub kind: Option<ReviewKind>,
+        /// Defaults to 10.
+        pub limit: Option<u32>,
+    }
+}
+
+input! {
+    pub struct Nothing {}
 }
 
 fn schema_of<T: JsonSchema>() -> Value {
@@ -31,6 +86,7 @@ fn schema_of<T: JsonSchema>() -> Value {
     if let Some(obj) = v.as_object_mut() {
         obj.remove("$schema");
         obj.remove("title");
+        obj.remove("description");
     }
     v
 }
@@ -41,13 +97,21 @@ fn parse<T: for<'de> Deserialize<'de>>(name: &str, input: Value) -> Result<T> {
     serde_json::from_value(input).with_context(|| format!("invalid input for {name}"))
 }
 
+fn on(d: Option<NaiveDate>) -> NaiveDate {
+    d.unwrap_or_else(today)
+}
+
 macro_rules! access {
-    (read) => { true };
-    (write) => { false };
+    (read) => {
+        true
+    };
+    (write) => {
+        false
+    };
 }
 
 macro_rules! tools {
-    ($( $access:ident $name:literal => $input:ty, $desc:literal, |$life:ident, $arg:ident| $body:expr; )*) => {
+    ($( $access:ident $name:literal: $input:ty => $output:ty, $desc:literal, |$life:ident, $arg:ident| $body:expr; )*) => {
         pub fn specs() -> Vec<ToolSpec> {
             vec![$(ToolSpec {
                 name: $name,
@@ -57,298 +121,212 @@ macro_rules! tools {
             },)*]
         }
 
-        /// Runs a tool by name. Errors are meant to be shown to the model.
+        pub fn spec(name: &str) -> Option<ToolSpec> {
+            specs().into_iter().find(|s| s.name == name)
+        }
+
+        /// Runs a tool by name, after picking up hand edits to the vault.
+        /// Errors are meant to be shown to the model.
         pub fn call(life: &mut Life, name: &str, input: Value) -> Result<Value> {
+            life.sync_index()?;
             match name {
                 $($name => {
                     let $arg: $input = parse($name, input)?;
-                    let $life = life;
-                    Ok(serde_json::to_value($body?)?)
+                    let $life = &*life;
+                    let out: Result<$output> = $body;
+                    let out = out?;
+                    let value = serde_json::to_value(out)?;
+                    Ok(if value.is_null() && std::any::TypeId::of::<$output>() == std::any::TypeId::of::<()>() {
+                        json!({ "ok": true })
+                    } else {
+                        value
+                    })
                 })*
                 other => anyhow::bail!("unknown tool '{other}'"),
             }
         }
+
+        /// `ReadTools` for the web app: each read tool's input and output type.
+        #[cfg(feature = "ts")]
+        pub fn read_tools_ts() -> String {
+            use ts_rs::{Config, TS};
+            let cfg = Config::from_env();
+            let mut entries = String::new();
+            $(if access!($access) {
+                entries.push_str(&format!(
+                    "  {}: {{ input: {}; output: {} }};\n",
+                    $name,
+                    <$input as TS>::name(&cfg),
+                    <$output as TS>::name(&cfg),
+                ));
+            })*
+            // Every exported type is in its own file next to this one; import
+            // the ones the entries name.
+            let mut imports: Vec<&str> = entries
+                .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                .filter(|w| w.starts_with(|c: char| c.is_ascii_uppercase()) && *w != "Array")
+                .collect();
+            imports.sort_unstable();
+            imports.dedup();
+            let mut out = String::from("// Generated by `make gen` from crates/lifeos-core/src/tools.rs. Do not edit.\n");
+            for name in imports {
+                out.push_str(&format!("import type {{ {name} }} from \"./{name}\";\n"));
+            }
+            out.push_str("\nexport interface ReadTools {\n");
+            out.push_str(&entries);
+            out.push_str("}\n\nexport type ReadTool = keyof ReadTools;\n");
+            out
+        }
     };
 }
 
-fn day_or_today(d: Option<NaiveDate>) -> NaiveDate {
-    d.unwrap_or_else(today)
-}
-
-fn month_start(d: NaiveDate) -> NaiveDate {
-    d.with_day(1).expect("day 1 exists")
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DateInput {
-    /// YYYY-MM-DD. Defaults to today.
-    pub date: Option<NaiveDate>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct AddTask {
-    pub title: String,
-    /// Due date, YYYY-MM-DD.
-    pub due: Option<NaiveDate>,
-    /// Id of the goal this task serves (from list_goals).
-    pub goal: Option<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    /// Extra details, Markdown.
-    pub notes: Option<String>,
-}
-
-#[derive(Deserialize, JsonSchema, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
-pub enum TaskFilter {
-    Open,
-    Done,
-    All,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ListTasks {
-    /// Defaults to open.
-    pub status: Option<TaskFilter>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct IdInput {
-    pub id: String,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct AddGoal {
-    pub title: String,
-    /// Time frame in words, e.g. "2026", "Q1 2027", "5 năm".
-    pub horizon: Option<String>,
-    /// Target date, YYYY-MM-DD.
-    pub due: Option<NaiveDate>,
-    /// Why this goal matters — kept in the goal file.
-    pub why: Option<String>,
-}
-
-#[derive(Deserialize, JsonSchema, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
-pub enum GoalStatus {
-    Active,
-    Paused,
-    Done,
-    Dropped,
-}
-
-impl GoalStatus {
-    fn as_str(self) -> &'static str {
-        match self {
-            GoalStatus::Active => "active",
-            GoalStatus::Paused => "paused",
-            GoalStatus::Done => "done",
-            GoalStatus::Dropped => "dropped",
-        }
-    }
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ListGoals {
-    /// Omit for all goals.
-    pub status: Option<GoalStatus>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SetGoalStatus {
-    pub id: String,
-    pub status: GoalStatus,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct WriteJournal {
-    /// The entry, in the user's own words where possible. Markdown.
-    pub text: String,
-    /// YYYY-MM-DD. Defaults to today.
-    pub date: Option<NaiveDate>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SaveNote {
-    pub title: String,
-    /// Markdown.
-    pub body: String,
-    #[serde(default)]
-    pub tags: Vec<String>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Search {
-    /// Words to look for; accents are optional ("ca phe" finds "cà phê").
-    pub query: String,
-    /// Defaults to 10.
-    pub limit: Option<u32>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct LogHabit {
-    /// Short stable name, e.g. "thiền", "chạy bộ", "đọc sách".
-    pub habit: String,
-    /// YYYY-MM-DD. Defaults to today.
-    pub date: Option<NaiveDate>,
-    /// Amount done (minutes, pages, km…). Defaults to 1. 0 un-marks the day.
-    pub value: Option<f64>,
-    pub note: Option<String>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Habits {
-    /// Days to count back from today. Defaults to 7.
-    pub window_days: Option<u32>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct AddTransaction {
-    /// Signed: negative for money out (spending), positive for money in.
-    pub amount: f64,
-    /// ISO code, e.g. VND, USD.
-    pub currency: String,
-    /// Short lowercase category, e.g. "ăn uống", "đi lại", "lương".
-    pub category: String,
-    pub note: Option<String>,
-    /// YYYY-MM-DD. Defaults to today.
-    pub date: Option<NaiveDate>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DateRange {
-    /// YYYY-MM-DD, inclusive. Defaults to the first day of this month.
-    pub from: Option<NaiveDate>,
-    /// YYYY-MM-DD, inclusive. Defaults to today.
-    pub to: Option<NaiveDate>,
-}
-
-impl DateRange {
-    fn resolve(&self) -> (NaiveDate, NaiveDate) {
-        let to = day_or_today(self.to);
-        (self.from.unwrap_or_else(|| month_start(to)), to)
-    }
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DeleteTransaction {
-    pub id: i64,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct LogMetric {
-    /// Lowercase name, e.g. "cân nặng", "giấc ngủ", "năng lượng".
-    pub name: String,
-    pub value: f64,
-    /// e.g. "kg", "giờ", "1-10".
-    pub unit: Option<String>,
-    pub note: Option<String>,
-    /// YYYY-MM-DD. Defaults to today.
-    pub date: Option<NaiveDate>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ListMetrics {
-    /// Omit for every metric.
-    pub name: Option<String>,
-    /// YYYY-MM-DD. Defaults to 30 days ago.
-    pub from: Option<NaiveDate>,
-    /// YYYY-MM-DD. Defaults to today.
-    pub to: Option<NaiveDate>,
-}
-
 tools! {
-    read "today" => DateInput,
-        "Overview of a day: overdue and due tasks, active goals, habit streaks, money moved, whether the journal is written. Start here when the user asks what to do or how things are going.",
-        |life, i| life.today(day_or_today(i.date));
-
-    write "add_task" => AddTask,
-        "Create a task (a Markdown file in tasks/). Link it to a goal when it clearly serves one.",
-        |life, i| life.add_task(&i.title, i.due, i.goal, i.tags, i.notes);
-    read "list_tasks" => ListTasks,
-        "List tasks, sorted by due date.",
-        |life, i| life.list_tasks(match i.status.unwrap_or(TaskFilter::Open) {
-            TaskFilter::Open => Some("open"),
-            TaskFilter::Done => Some("done"),
-            TaskFilter::All => None,
-        });
-    write "complete_task" => IdInput,
-        "Mark a task done by its id.",
-        |life, i| life.complete_task(&i.id);
-
-    write "add_goal" => AddGoal,
-        "Create a goal (a Markdown file in goals/) with its horizon and the reason behind it.",
-        |life, i| life.add_goal(&i.title, i.horizon, i.due, i.why);
-    read "list_goals" => ListGoals,
-        "List goals.",
-        |life, i| life.list_goals(i.status.map(GoalStatus::as_str));
-    write "set_goal_status" => SetGoalStatus,
-        "Change a goal's status: active, paused, done or dropped.",
-        |life, i| life.set_goal_status(&i.id, i.status.as_str());
-
-    write "write_journal" => WriteJournal,
-        "Append a timestamped entry to the journal file of a day (journal/YYYY/YYYY-MM-DD.md).",
-        |life, i| life.journal_append(day_or_today(i.date), &i.text);
-    read "read_journal" => DateInput,
-        "Read the journal of a day. Returns null when nothing was written.",
-        |life, i| life.journal_read(day_or_today(i.date));
-
-    write "save_note" => SaveNote,
-        "Save a knowledge note (notes/): an idea, a lesson, something about a person, a reference.",
-        |life, i| life.save_note(&i.title, &i.body, i.tags);
-    read "read_doc" => IdInput,
-        "Read any task, goal, journal day or note in full, by id or vault-relative path.",
-        |life, i| life.read_doc(&i.id);
-    read "search" => Search,
-        "Full-text search across tasks, goals, journal and notes.",
+    // ------------------------------------------------------------- overview
+    read "dashboard": Day => Dashboard,
+        "Everything at a glance for a day: the morning brief, tasks by bucket, active goals, habits, people to get in touch with, birthdays, this month's money, health trends, recent journal and notes, the inbox. Start here when the user asks what to do or how things are going.",
+        |life, i| life.dashboard(on(i.date));
+    read "search": Search => Vec<SearchHit>,
+        "Full-text search across tasks, goals, journal, notes, people and reviews (accents optional).",
         |life, i| life.search(&i.query, i.limit.unwrap_or(10) as usize);
+    read "read_doc": DocId => DocFull,
+        "Read any task, goal, journal day, note, person or review in full, by id or vault path.",
+        |life, i| life.read_doc(&i.id);
 
-    write "log_habit" => LogHabit,
-        "Record that a habit was done on a day (one record per habit per day; logging again overwrites). Returns the streak.",
-        |life, i| life.log_habit(&i.habit, day_or_today(i.date), i.value.unwrap_or(1.0), i.note);
-    read "habits" => Habits,
-        "Every habit ever logged, with today's state, current streak and count in the window.",
-        |life, i| life.habits(i.window_days.unwrap_or(7).max(1));
+    // ---------------------------------------------------------------- tasks
+    read "list_tasks": ListTasks => Vec<DocSummary>,
+        "List tasks, soonest date first, then priority.",
+        |life, i| life.list_tasks(&i);
+    read "tasks_view": Day => TasksView,
+        "Open tasks of a day in buckets: overdue, today (due or planned), the next 7 days, anytime; plus what was done that day.",
+        |life, i| life.tasks_view(on(i.date));
+    write "add_task": AddTask => DocSummary,
+        "Create a task (tasks/<id>.md). Use `scheduled` for the day the user plans to do it and `due` for a real deadline. Link it to a goal when it clearly serves one.",
+        |life, i| life.add_task(i);
+    write "update_task": UpdateTask => DocSummary,
+        "Change a task: reschedule, reprioritise, retitle, relink, add notes. Only given fields change.",
+        |life, i| life.update_task(i);
+    write "complete_task": DocId => DocSummary,
+        "Mark a task done.",
+        |life, i| life.complete_task(&i.id);
+    write "reopen_task": DocId => DocSummary,
+        "Mark a done task open again.",
+        |life, i| life.reopen_task(&i.id);
 
-    write "add_transaction" => AddTransaction,
-        "Record money in or out.",
-        |life, i| life.add_transaction(day_or_today(i.date), i.amount, &i.currency, &i.category, i.note);
-    read "list_transactions" => DateRange,
-        "List transactions in a date range (default: this month).",
+    // ---------------------------------------------------------------- goals
+    read "list_goals": ListGoals => Vec<GoalView>,
+        "Goals with progress, why they matter and their linked task counts. Active first.",
+        |life, i| life.goal_views(&i);
+    write "add_goal": AddGoal => DocSummary,
+        "Create a goal (goals/<id>.md) with its horizon and the reason behind it.",
+        |life, i| life.add_goal(i);
+    write "update_goal": UpdateGoal => DocSummary,
+        "Change a goal: status (active, paused, done, dropped), progress 0–100, horizon, due, or add a dated line to its progress log.",
+        |life, i| life.update_goal(i);
+
+    // --------------------------------------------------------------- habits
+    read "habits": ListHabits => Vec<HabitStatus>,
+        "Habits with today's state, streak, days done this week against the weekly target, and the last 12 weeks day by day.",
+        |life, i| life.habits(&i, today());
+    write "define_habit": DefineHabit => HabitStatus,
+        "Start tracking a habit, or change its unit or weekly target.",
+        |life, i| life.define_habit(i);
+    write "log_habit": LogHabit => HabitStatus,
+        "Record that a habit was done on a day (logging the same day again overwrites; value 0 un-marks it).",
+        |life, i| life.log_habit(i);
+    write "archive_habit": HabitName => (),
+        "Stop tracking a habit (its history stays).",
+        |life, i| life.archive_habit(&i.name);
+
+    // --------------------------------------------------------------- people
+    read "list_people": ListPeople => Vec<PersonView>,
+        "People in the user's life: relation, birthday, how long since last contact, who is overdue for contact.",
+        |life, i| life.people(&i, today());
+    read "person": DocId => PersonDetail,
+        "One person in full: what lifeos remembers about them and every logged interaction.",
+        |life, i| life.person_detail(&i.id);
+    write "add_person": AddPerson => DocSummary,
+        "Remember a person (people/<id>.md): relation, birthday, how often to be in touch, notes.",
+        |life, i| life.add_person(i);
+    write "update_person": UpdatePerson => DocSummary,
+        "Change what lifeos knows about a person, or add a dated note about them.",
+        |life, i| life.update_person(i);
+    write "log_interaction": LogInteraction => Interaction,
+        "Record contact with a person: met, called, messaged… and what about.",
+        |life, i| life.log_interaction(i);
+    write "delete_interaction": RowId => (),
+        "Delete a logged interaction (to fix a mistake).",
+        |life, i| life.delete_interaction(i.id);
+
+    // ---------------------------------------------------------------- money
+    read "money_month": MonthInput => MoneyMonth,
+        "A month of money: totals per currency, spending by category, budgets against spending, daily spending, latest transactions.",
+        |life, i| life.money_month(i.month.as_deref(), today());
+    read "list_transactions": DateRange => Vec<Transaction>,
+        "Transactions in a date range (default: this month), oldest first.",
         |life, i| { let (from, to) = i.resolve(); life.transactions(from, to) };
-    write "delete_transaction" => DeleteTransaction,
-        "Delete a transaction by id (to fix a mistake).",
-        |life, i| life.delete_transaction(i.id).map(|()| json!({ "deleted": i.id }));
-    read "finance_summary" => DateRange,
-        "Income, spending, net and spending by category per currency, in a date range (default: this month).",
+    read "finance_summary": DateRange => Vec<CurrencySummary>,
+        "Income, spending, net and spending by category per currency in a date range (default: this month).",
         |life, i| { let (from, to) = i.resolve(); life.finance_summary(from, to) };
+    read "list_budgets": Nothing => Vec<Budget>,
+        "Monthly budgets per category.",
+        |life, _i| life.budgets();
+    write "add_transaction": AddTransaction => Transaction,
+        "Record money in (positive) or out (negative).",
+        |life, i| life.add_transaction(i);
+    write "delete_transaction": RowId => (),
+        "Delete a transaction (to fix a mistake).",
+        |life, i| life.delete_transaction(i.id);
+    write "set_budget": SetBudget => Vec<Budget>,
+        "Set a monthly budget for a spending category; 0 removes it.",
+        |life, i| life.set_budget(i);
 
-    write "log_metric" => LogMetric,
-        "Record a health or life measurement: weight, sleep hours, energy, mood, steps…",
-        |life, i| life.log_metric(day_or_today(i.date), &i.name, i.value, i.unit, i.note);
-    read "list_metrics" => ListMetrics,
-        "List recorded measurements in a date range (default: last 30 days).",
-        |life, i| {
-            let to = day_or_today(i.to);
-            life.metrics(i.name.as_deref(), i.from.unwrap_or(to - Duration::days(30)), to)
-        };
+    // --------------------------------------------------------------- health
+    read "metric_series": SeriesInput => Vec<MetricSeries>,
+        "Each health measurement over the last days (default 30): one point per day, latest and previous value.",
+        |life, i| life.metric_series(i.days.unwrap_or(SERIES_DAYS).max(1), today());
+    read "list_metrics": ListMetrics => Vec<Metric>,
+        "Recorded measurements in a date range (default: last 30 days).",
+        |life, i| life.metrics(&i);
+    write "log_metric": LogMetric => Metric,
+        "Record a health or life measurement: weight, sleep hours, steps, mood, energy…",
+        |life, i| life.log_metric(i);
+    write "delete_metric": RowId => (),
+        "Delete a measurement (to fix a mistake).",
+        |life, i| life.delete_metric(i.id);
+
+    // ---------------------------------------------------- journal and notes
+    read "read_journal": Day => Option<DocFull>,
+        "The journal of a day, or null when nothing was written.",
+        |life, i| life.read_journal(on(i.date));
+    read "journal_recent": Recent => Vec<JournalExcerpt>,
+        "The latest journal days with a short excerpt, newest first.",
+        |life, i| life.journal_recent(i.limit.unwrap_or(10));
+    read "recent_notes": Recent => Vec<DocSummary>,
+        "Most recently changed notes.",
+        |life, i| life.recent_notes(i.limit.unwrap_or(10));
+    read "reviews": ListReviews => Vec<DocSummary>,
+        "Briefs and weekly or monthly reviews, newest first.",
+        |life, i| life.reviews(i.kind, i.limit.unwrap_or(10));
+    write "write_journal": WriteJournal => DocSummary,
+        "Append a timestamped entry to a day's journal (journal/YYYY/YYYY-MM-DD.md), in the user's voice.",
+        |life, i| life.write_journal(i);
+    write "save_note": SaveNote => DocSummary,
+        "Save a knowledge note (notes/): an idea, a lesson, a reference, a book.",
+        |life, i| life.save_note(i);
+    write "save_review": SaveReview => DocSummary,
+        "Save a review you wrote: the morning brief (kind brief, shown on top of the dashboard) or a weekly or monthly review. One per kind per date; saving again replaces it.",
+        |life, i| life.save_review(i);
+
+    // ---------------------------------------------------------------- inbox
+    read "list_inbox": Nothing => Vec<InboxItem>,
+        "Things captured but not yet sorted, oldest first.",
+        |life, _i| life.inbox();
+    write "capture": Capture => InboxItem,
+        "Drop something into the inbox when it is not yet clear what it is.",
+        |life, i| life.capture(i);
+    write "resolve_inbox": RowId => (),
+        "Mark an inbox item sorted, once it became a task, note, person… or was dropped.",
+        |life, i| life.resolve_inbox(i.id);
 }
 
 #[cfg(test)]
@@ -358,23 +336,43 @@ mod tests {
     #[test]
     fn every_schema_is_an_object_without_meta_keys() {
         let specs = specs();
-        assert_eq!(specs.len(), 20);
+        let mut names: Vec<_> = specs.iter().map(|s| s.name).collect();
+        names.dedup();
+        assert_eq!(names.len(), specs.len());
         for s in &specs {
             assert_eq!(s.input_schema["type"], "object", "{}", s.name);
             assert!(s.input_schema.get("$schema").is_none());
             assert!(!s.input_schema.to_string().contains("$ref"), "{}", s.name);
         }
+        assert!(spec("dashboard").unwrap().read_only);
+        assert!(!spec("add_task").unwrap().read_only);
     }
 
     #[test]
     fn call_dispatches_and_rejects_bad_input() {
         let dir = tempfile::tempdir().unwrap();
         let mut life = Life::open_with_memory_db(dir.path()).unwrap();
-        let out = call(&mut life, "add_task", json!({ "title": "Gọi mẹ", "due": "2026-12-01" })).unwrap();
+        let out = call(&mut life, "add_task", json!({ "title": "Gọi mẹ", "due": "2026-12-01", "priority": "high" })).unwrap();
         assert_eq!(out["id"], "goi-me");
         let list = call(&mut life, "list_tasks", Value::Null).unwrap();
         assert_eq!(list.as_array().unwrap().len(), 1);
         assert!(call(&mut life, "add_task", json!({ "title": "x", "bogus": 1 })).is_err());
+        assert!(call(&mut life, "add_task", json!({ "title": "x", "priority": "urgent" })).is_err());
         assert!(call(&mut life, "nope", json!({})).is_err());
+        let item = call(&mut life, "capture", json!({ "text": "ý tưởng" })).unwrap();
+        assert_eq!(call(&mut life, "resolve_inbox", json!({ "id": item["id"] })).unwrap(), json!({ "ok": true }));
+        let dash = call(&mut life, "dashboard", json!({})).unwrap();
+        assert!(dash["tasks"].is_object());
+    }
+
+    #[cfg(feature = "ts")]
+    #[test]
+    fn export_read_tools_ts() {
+        let dir = std::env::var("TS_RS_EXPORT_DIR").unwrap_or_else(|_| "bindings".into());
+        let ts = read_tools_ts();
+        assert!(ts.contains("dashboard: { input: Day; output: Dashboard }"), "{ts}");
+        assert!(!ts.contains("add_task"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(std::path::Path::new(&dir).join("tools.ts"), ts).unwrap();
     }
 }
