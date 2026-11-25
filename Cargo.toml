@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+# The page's wasm (crates/lifeos-web-client/bind.sh): small over fast to build.
+[profile.wasm]
+inherits = "release"
+debug = false
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+# "debuginfo", not true: wasm-bindgen reads the `target_features` section a full strip removes.
+strip = "debuginfo"

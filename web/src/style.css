@@ -1,0 +1,41 @@
+:root {
+  color-scheme: light dark;
+  --fg: #1a1a1a; --muted: #6b6b6b; --bg: #fafaf8; --card: #fff; --line: #e6e4df; --accent: #2f6f5e; --bad: #b4483b;
+  font: 15px/1.5 system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #ececea; --muted: #9a9a96; --bg: #141413; --card: #1d1d1b; --line: #2e2e2b; --accent: #7cc4ad; --bad: #e0857a; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--fg); background: var(--bg); }
+
+header { max-width: 1100px; margin: 0 auto; padding: 16px 24px 0; display: flex; align-items: center; gap: 12px; }
+.link { font-size: 12px; color: var(--muted); }
+.link::before { content: '●'; margin-right: 4px; }
+.link.open::before { color: var(--accent); }
+.link.down::before { color: var(--bad); }
+
+main { max-width: 1100px; margin: 0 auto; padding: 16px 24px 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 6px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+ul { margin: 0; padding-left: 18px; } li { margin: 2px 0; }
+.muted { color: var(--muted); }
+.overdue, .error { color: var(--bad); }
+
+.chat { display: flex; flex-direction: column; }
+.chat-head { display: flex; justify-content: space-between; align-items: center; }
+.log { height: 56vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.msg { white-space: pre-wrap; padding: 8px 12px; border-radius: 8px; max-width: 92%; }
+.msg.me { align-self: flex-end; background: var(--accent); color: var(--bg); }
+.msg.bot { align-self: flex-start; border: 1px solid var(--line); }
+.msg.error { border-color: var(--bad); }
+.tools { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+form { display: flex; gap: 8px; margin-top: 12px; }
+textarea { flex: 1; resize: vertical; min-height: 44px; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+button { font: inherit; padding: 6px 16px; border-radius: 8px; border: 0; background: var(--accent); color: var(--bg); cursor: pointer; }
+button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+button[disabled] { opacity: .5; cursor: default; }

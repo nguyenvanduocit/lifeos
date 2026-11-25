@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# built by crates/lifeos-web-client/bind.sh
+src/core/pkg/

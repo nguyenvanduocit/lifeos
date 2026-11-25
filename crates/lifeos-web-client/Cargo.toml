@@ -1,0 +1,19 @@
+[package]
+name = "lifeos-web-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# The crate is empty off wasm32: everything it needs is the browser's.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.107"
+lifeos-wire = { version = "0.1.0", path = "../lifeos-wire" }
+serde = "1.0.229"
+serde-wasm-bindgen = "0.6.5"
+url = "2.5.9"
+wasm-bindgen = "=0.2.130"
+wasm-bindgen-futures = "0.4.80"
+web-transport = "0.13.9"

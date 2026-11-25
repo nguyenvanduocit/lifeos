@@ -1,0 +1,7 @@
+[target.wasm32-unknown-unknown]
+# The browser's WebTransport is behind web-sys's unstable APIs.
+rustflags = ["--cfg=web_sys_unstable_apis"]
+
+[env]
+# Where ts-rs writes the TypeScript of lifeos-wire's types.
+TS_RS_EXPORT_DIR = { value = "web/src/core/generated", relative = true }

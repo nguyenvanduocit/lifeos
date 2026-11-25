@@ -1,0 +1,13 @@
+[package]
+name = "lifeos-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.105"
+lifeos-core = { version = "0.1.0", path = "../lifeos-core" }
+serde_json = "1.0.154"
+
+[dev-dependencies]
+tempfile = "3.27.0"

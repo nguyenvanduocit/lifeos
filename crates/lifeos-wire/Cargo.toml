@@ -1,0 +1,14 @@
+[package]
+name = "lifeos-wire"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+postcard = { version = "1.2.0", default-features = false, features = ["use-std"] }
+serde = { version = "1.0.229", features = ["derive"] }
+ts-rs = { version = "12.0.1", optional = true }
+
+[features]
+# `cargo test -p lifeos-wire --features ts` writes web/src/core/generated/*.ts
+ts = ["dep:ts-rs"]
