@@ -1,18 +1,18 @@
-# Dữ liệu và quyền riêng tư
+# Data and privacy
 
-LifeOS lưu vault trên máy chạy ứng dụng. `lifeos init` tạo cấu trúc vault và một file `CLAUDE.md` để bạn mô tả thông tin muốn agent biết.
+LifeOS stores its vault on the machine running the app. `lifeos init` creates the vault layout and a `CLAUDE.md` file where you can describe what you want the agent to know.
 
-| Vị trí trong vault | Dữ liệu |
+| Vault path | Contents |
 | --- | --- |
-| `CLAUDE.md` | Thông tin và hướng dẫn dành cho agent |
-| `tasks/`, `goals/`, `people/`, `notes/` | Việc cần làm, mục tiêu, hồ sơ liên hệ và ghi chú |
-| `journal/<năm>/`, `reviews/` | Nhật ký, bản tin và các bản review |
-| `crew/` | Cấu hình agent chuyên trách |
-| `routines/` | Định nghĩa routine trong vault |
-| `.lifeos/lifeos.db` | Habit logs, tương tác, giao dịch, ngân sách, chỉ số, inbox, bộ nhớ, lịch sử chat và index tìm kiếm |
+| `CLAUDE.md` | Context and instructions for the agent |
+| `tasks/`, `goals/`, `people/`, `notes/` | Tasks, goals, contact profiles, and notes |
+| `journal/<year>/`, `reviews/` | Journal entries, briefs, and reviews |
+| `crew/` | Specialist agent configurations |
+| `routines/` | Routine definitions |
+| `.lifeos/lifeos.db` | Habit logs, interactions, transactions, budgets, metrics, inbox, memory, chat history, and search index |
 
-Bạn có thể chỉnh Markdown bằng trình soạn thảo hoặc Obsidian. Chạy `lifeos reindex` nếu cần dựng lại index từ Markdown. SQLite cũng lưu dữ liệu gốc như giao dịch và lịch sử chat, nên giữ cả thư mục `.lifeos/` khi sao lưu.
+You can edit Markdown files in any text editor or in Obsidian. Run `lifeos reindex` to rebuild the search index from Markdown. SQLite also stores original data such as transactions and chat history, so include the entire `.lifeos/` directory in your backups.
 
-Để sao lưu nhất quán, dừng các tiến trình LifeOS đang ghi dữ liệu rồi sao chép toàn bộ vault, kể cả thư mục ẩn. Khi khôi phục, trỏ `LIFEOS_HOME` đến bản vault đã phục hồi và kiểm tra bằng `lifeos today`.
+For a consistent backup, stop any LifeOS processes that write to the vault and copy the entire directory, including hidden files. To restore a backup, point `LIFEOS_HOME` at the restored vault and check it with `lifeos today`.
 
-Khi dùng chức năng AI, Claude Code xử lý nội dung chat và ngữ cảnh mà agent đọc từ vault. Khi dùng bot, tin nhắn và phản hồi đi qua Telegram. Giữ vault và các giá trị token ở ngoài checkout công khai.
+When you use AI features, Claude Code processes your messages and the context the agent reads from the vault. When you use the bot, messages and replies pass through Telegram. Keep the vault and token values outside the public checkout.

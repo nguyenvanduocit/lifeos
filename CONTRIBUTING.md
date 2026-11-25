@@ -1,6 +1,6 @@
-# Đóng góp cho LifeOS
+# Contributing to LifeOS
 
-Đọc [hướng dẫn cài đặt](docs/getting-started.md) để chuẩn bị Rust nightly, wasm-bindgen và npm. Đọc [kiến trúc](CLAUDE.md) trước khi thay đổi wire types, tool hoặc luồng chat.
+Follow the [installation guide](docs/getting-started.md) to set up Rust nightly, wasm-bindgen, and npm. Read the [architecture notes](CLAUDE.md) before changing wire types, tools, or chat behavior.
 
 ```sh
 export RUSTUP_TOOLCHAIN=nightly
@@ -8,12 +8,12 @@ export RUSTUP_TOOLCHAIN=nightly
 LIFEOS_HOME="$(mktemp -d)" make dev
 ```
 
-Mở Vite tại `http://localhost:5173`. Dùng vault thử nghiệm và dữ liệu giả khi gửi bug report, ảnh chụp hoặc log.
+Open the Vite development server at `http://localhost:5173`. Use a test vault and fictional data in bug reports, screenshots, and logs.
 
 ```sh
-make test                           # kiểm thử Rust, build Wasm, typecheck Vue
-make web                            # build frontend production
-cargo test -p lifeos-web --test link # tích hợp WebTransport
+make test                           # Rust tests, Wasm build, and Vue type check
+make web                            # production frontend build
+cargo test -p lifeos-web --test link # WebTransport integration test
 ```
 
-Nếu thay đổi Rust wire types hoặc input của tool, chạy `make gen` và commit TypeScript được sinh ra cùng thay đổi Rust. Với pull request, mô tả hành vi thay đổi và các lệnh đã kiểm tra.
+If you change Rust wire types or tool inputs, run `make gen` and commit the generated TypeScript with the Rust changes. In your pull request, describe the behavior that changed and list the checks you ran.

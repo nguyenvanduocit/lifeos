@@ -1,19 +1,19 @@
 # LifeOS
 
-**Trợ lý AI cá nhân cho việc cần làm, thói quen và nhật ký, với dữ liệu lưu trên máy bạn.**
+**A personal AI assistant for tasks, habits, and journaling, with data stored on your machine.**
 
-![Bìa LifeOS với đồi xanh lúc bình minh và một cuốn sổ mở](docs/assets/cover.webp)
+![LifeOS cover showing green hills at sunrise and an open notebook](docs/assets/cover.webp)
 
-LifeOS dùng Claude Code để trò chuyện với bạn và quản lý một vault Markdown + SQLite. Bạn có thể xem kế hoạch hôm nay, nhờ agent cập nhật dữ liệu và theo dõi thay đổi trên dashboard.
+LifeOS uses Claude Code to chat with you and manage a Markdown and SQLite vault. See your plan for today, ask the agent to update it, and follow changes in the dashboard.
 
-- **Tổ chức ngày của bạn** với việc cần làm, mục tiêu, thói quen, nhật ký, ghi chú và inbox.
-- **Theo dõi điều quan trọng** như người cần liên lạc, chi tiêu theo ngân sách và xu hướng sức khỏe.
-- **Làm việc với một crew** gồm các agent chuyên trách, mỗi agent có vai trò, bộ công cụ, bộ nhớ và lịch sử trò chuyện riêng.
-- **Dùng qua nhiều kênh** gồm web, terminal, Telegram và MCP.
+- **Plan your day** with tasks, goals, habits, journal entries, notes, and an inbox.
+- **Keep track of what matters** with contact follow-ups, spending against budgets, and health trends.
+- **Work with a crew** of specialist agents, each with its own role, tools, memory, and chat history.
+- **Use LifeOS your way** through the web, terminal, Telegram, or MCP.
 
-## Bắt đầu
+## Quick start
 
-Cần Rust qua rustup, C toolchain, CMake, GNU Make, Node.js 22.12 trở lên và npm. Cài Claude Code, đăng nhập trước khi dùng các chức năng AI. Xem [hướng dẫn cài đặt](docs/getting-started.md) để biết phiên bản và cách xử lý lỗi build.
+You’ll need Rust through rustup, a C toolchain, CMake, GNU Make, Node.js 22.12 or later, and npm. Install Claude Code and sign in before using AI features. See the [installation guide](docs/getting-started.md) for version requirements and build troubleshooting.
 
 ```sh
 git clone https://github.com/nguyenvanduocit/lifeos.git
@@ -25,18 +25,18 @@ cargo +nightly install wasm-bindgen-cli --version 0.2.130 --locked
 ./target/release/lifeos web
 ```
 
-Mở [dashboard local](http://127.0.0.1:7420). Thử nhắn **“Thêm việc đọc sách tối nay rồi cho tôi xem kế hoạch hôm nay.”** Bạn có thể viết thêm thông tin về mình trong `~/lifeos/CLAUDE.md` để agent dùng khi trò chuyện.
+Open the [local dashboard](http://127.0.0.1:7420) and try asking **“Add a task to read tonight, then show me today’s plan.”** You can give the agent more context by editing `~/lifeos/CLAUDE.md`.
 
-Web mặc định nghe trên máy local. Khi cần dùng từ thiết bị khác, hãy đọc [hướng dẫn triển khai qua Tailscale](docs/deployment.md) vì web và WebTransport không có đăng nhập tích hợp.
+The web app listens on your machine by default. If you want access from another device, follow the [Tailscale deployment guide](docs/deployment.md). The web app and WebTransport connection have no built-in authentication.
 
-## Tài liệu
+## Documentation
 
-| Tài liệu | Nội dung |
+| Guide | Contents |
 | --- | --- |
-| [Cài đặt và sử dụng](docs/getting-started.md) | Build, các lệnh CLI, web, Telegram, MCP và cấu hình |
-| [Dữ liệu và quyền riêng tư](docs/data.md) | Cấu trúc vault, sao lưu và luồng dữ liệu qua Claude Code |
-| [Triển khai](docs/deployment.md) | Local, Tailscale, LaunchAgent và kiểm tra WebTransport |
-| [Đóng góp](CONTRIBUTING.md) | Chạy môi trường dev, kiểm thử và gửi pull request |
-| [Kiến trúc](CLAUDE.md) | Các crate, giao thức WebTransport và quy tắc đồng bộ kiểu |
+| [Installation and usage](docs/getting-started.md) | Build, CLI, web, Telegram, MCP, and configuration |
+| [Data and privacy](docs/data.md) | Vault layout, backups, and data shared with Claude Code |
+| [Deployment](docs/deployment.md) | Local hosting, Tailscale, LaunchAgent, and WebTransport troubleshooting |
+| [Contributing](CONTRIBUTING.md) | Development environment, tests, and pull requests |
+| [Architecture](CLAUDE.md) | Crate layout, WebTransport protocol, and shared type definitions |
 
-Mã nguồn theo giấy phép [MIT](LICENSE).
+LifeOS is licensed under the [MIT License](LICENSE).

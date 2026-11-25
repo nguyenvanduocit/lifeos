@@ -1,28 +1,28 @@
-# Triển khai dashboard
+# Deploy the dashboard
 
-## Trên máy local
+## Run locally
 
 ```sh
 ./target/release/lifeos web
 ```
 
-Mở [dashboard local](http://127.0.0.1:7420). Trang và endpoint `/link.json` dùng HTTP TCP 7420. Client Wasm kết nối WebTransport qua UDP 7421. Web và link không có đăng nhập tích hợp. Giữ chúng trên loopback hoặc giới hạn truy cập trong tailnet tin cậy.
+Open the [local dashboard](http://127.0.0.1:7420). The page and `/link.json` use HTTP on TCP port 7420. The Wasm client connects over WebTransport on UDP port 7421. The web app and WebTransport link have no built-in authentication. Bind both to loopback or restrict access to a trusted tailnet.
 
-## Qua Tailscale trên macOS
+## Use Tailscale on macOS
 
-Cài và đăng nhập Tailscale, bật HTTPS cho tailnet, rồi build binary bằng [script setup](../scripts/setup.sh). Chạy:
+Install and sign in to Tailscale, enable HTTPS for your tailnet, and build the binary with the [setup script](../scripts/setup.sh). Then run:
 
 ```sh
 BRIEF_AT=06:30 ./scripts/install-tailscale.sh
 ```
 
-Script cài LaunchAgent để chạy ứng dụng cùng phiên đăng nhập macOS. Mở URL HTTPS mà script in ra, mặc định cổng 8443. Đặt `BRIEF_AT=` để tắt lịch bản tin hoặc đặt `HTTPS_PORT` để chọn cổng HTTPS khác. Chạy lại script sau khi build để cập nhật binary và khởi động lại dịch vụ.
+The script installs a LaunchAgent so the app starts when you sign in to macOS. Open the HTTPS URL printed by the script. The default HTTPS port is 8443. Set `BRIEF_AT=` to disable the daily brief, or set `HTTPS_PORT` to select another HTTPS port. After rebuilding LifeOS, rerun the script to update the installed binary and restart the service.
 
-Tailscale Serve chuyển HTTPS vào HTTP loopback. Trình duyệt kết nối UDP 7421 trực tiếp qua IP Tailscale, nên thiết bị truy cập cần vào được cả hai đường. Xem log tại `~/Library/Logs/lifeos-web.log`.
+Tailscale Serve forwards HTTPS to the local HTTP server. The browser connects directly to the server’s Tailscale IP on UDP port 7421, so the client must be able to reach both endpoints. Logs are available at `~/Library/Logs/lifeos-web.log`.
 
-Nếu trang mở được nhưng Assistant không kết nối, kiểm tra `/link.json`, kết nối của cả hai thiết bị vào tailnet và quyền truy cập UDP 7421. Nếu dùng reverse proxy hoặc tên miền riêng, giữ cùng giới hạn truy cập qua tailnet cho HTTP và UDP.
+If the dashboard opens but the Assistant cannot connect, check `/link.json`, confirm both devices are connected to the tailnet, and verify access to UDP port 7421. Apply the same tailnet access restrictions to HTTP and UDP when using a reverse proxy or a custom domain.
 
-Gỡ dịch vụ và cấu hình Tailscale Serve mặc định:
+To remove the service and the default Tailscale Serve configuration, run:
 
 ```sh
 launchctl bootout "gui/$(id -u)/com.lifeos.web"

@@ -1,10 +1,10 @@
-# Cài đặt và sử dụng
+# Installation and usage
 
-## Build từ mã nguồn
+## Build from source
 
-Chuẩn bị Git, rustup, C compiler, CMake, GNU Make, Node.js 22.12 trở lên và npm. Trên macOS có thể cài C compiler bằng `xcode-select --install`. Cài Claude Code 2.1.329 trở lên theo yêu cầu của dự án và đăng nhập trước khi chat hoặc chạy bản tin.
+Install Git, rustup, a C compiler, CMake, GNU Make, Node.js 22.12 or later, and npm. On macOS, `xcode-select --install` installs the C toolchain. Install Claude Code 2.1.329 or later and sign in before using chat or generating briefs.
 
-Từ thư mục checkout:
+From the repository root, run:
 
 ```sh
 rustup toolchain install nightly --target wasm32-unknown-unknown
@@ -12,49 +12,49 @@ cargo +nightly install wasm-bindgen-cli --version 0.2.130 --locked
 ./scripts/setup.sh
 ```
 
-Script dùng `npm ci` và build binary có nhúng dashboard. Nếu build Wasm báo sai phiên bản, so sánh `wasm-bindgen --version` với phiên bản ghim trong `crates/lifeos-web-client/Cargo.toml`.
+The script runs `npm ci` and builds a release binary with the dashboard embedded. If the Wasm build reports a version mismatch, compare `wasm-bindgen --version` with the version pinned in `crates/lifeos-web-client/Cargo.toml`.
 
-## Tạo vault và dùng terminal
+## Create a vault and use the terminal
 
 ```sh
 ./target/release/lifeos init
 ./target/release/lifeos today
 ./target/release/lifeos chat
 ./target/release/lifeos chat --resume
-./target/release/lifeos ask "Tóm tắt các việc cần làm hôm nay"
+./target/release/lifeos ask "Summarize the tasks I need to do today"
 ```
 
-`today` in dashboard dạng JSON và chạy được khi chưa đăng nhập Claude Code. Để đổi vault, dùng `--home` hoặc đặt `LIFEOS_HOME`.
+`today` prints the dashboard as JSON and runs without a Claude Code login. To use a different vault, pass `--home` or set `LIFEOS_HOME`.
 
-## Dashboard web
+## Web dashboard
 
 ```sh
 ./target/release/lifeos web --brief-at 06:30
 ```
 
-Mở [dashboard](http://127.0.0.1:7420). `--brief-at` là giờ địa phương và có thể bỏ qua nếu không cần bản tin hằng ngày. Dùng bảng Assistant để thêm hay cập nhật dữ liệu. Nếu đã tạo crew, chọn agent trong bảng Assistant để chuyển cuộc trò chuyện.
+Open the [dashboard](http://127.0.0.1:7420). The brief runs at the specified local time each day. Omit `--brief-at` to disable the schedule. Use the Assistant panel to add or update data. If you have created a crew, select an agent in the Assistant panel to switch conversations.
 
-## Telegram và MCP
+## Telegram and MCP
 
-Đặt `LIFEOS_TELEGRAM_TOKEN` trong môi trường của tiến trình và chạy `./target/release/lifeos telegram`. Khi chưa có danh sách cho phép, bot chỉ trả về chat ID. Nhắn bot để lấy ID, rồi đặt `LIFEOS_TELEGRAM_ALLOWED_CHATS` thành danh sách ID cách nhau bằng dấu phẩy và khởi động lại.
+Set `LIFEOS_TELEGRAM_TOKEN` in the process environment and run `./target/release/lifeos telegram`. With an empty allowlist, the bot replies with the chat ID. Send it a message to get your ID, then set `LIFEOS_TELEGRAM_ALLOWED_CHATS` to a comma-separated list of allowed IDs and restart the bot.
 
-Đăng ký MCP qua stdio từ thư mục repo:
+Register the MCP server over stdio from the repository root:
 
 ```sh
 claude mcp add lifeos -- "$PWD/target/release/lifeos" mcp
 ```
 
-Nếu muốn dùng vault riêng, thêm `--home "$HOME/my-lifeos-vault"` trước `mcp` trong lệnh đăng ký.
+To use a different vault, add `--home "$HOME/my-lifeos-vault"` before `mcp` in the registration command.
 
-## Cấu hình thường dùng
+## Configuration
 
-| Biến môi trường | Mặc định hoặc tác dụng |
+| Environment variable | Default or purpose |
 | --- | --- |
 | `LIFEOS_HOME` | `~/lifeos` |
-| `LIFEOS_MODEL` | Model mặc định của Claude Code |
-| `LIFEOS_EFFORT` | `low`, `medium`, `high`, `xhigh` hoặc `max` |
-| `LIFEOS_WEB_HOST` / `LIFEOS_WEB_PORT` | HTTP tại `127.0.0.1:7420` |
-| `LIFEOS_LINK_HOST` / `LIFEOS_LINK_PORT` | WebTransport dùng host HTTP và cổng UDP `7421` theo mặc định |
-| `LIFEOS_BRIEF_AT` | Giờ địa phương để viết bản tin, ví dụ `06:30` |
-| `LIFEOS_TELEGRAM_TOKEN` | Token bot Telegram |
-| `LIFEOS_TELEGRAM_ALLOWED_CHATS` | Danh sách chat ID được dùng agent |
+| `LIFEOS_MODEL` | Claude Code’s default model |
+| `LIFEOS_EFFORT` | `low`, `medium`, `high`, `xhigh`, or `max` |
+| `LIFEOS_WEB_HOST` / `LIFEOS_WEB_PORT` | HTTP on `127.0.0.1:7420` |
+| `LIFEOS_LINK_HOST` / `LIFEOS_LINK_PORT` | WebTransport uses the HTTP host and UDP port `7421` by default |
+| `LIFEOS_BRIEF_AT` | Local time for the daily brief, such as `06:30` |
+| `LIFEOS_TELEGRAM_TOKEN` | Telegram bot token |
+| `LIFEOS_TELEGRAM_ALLOWED_CHATS` | Comma-separated chat IDs authorized to use the agent |
