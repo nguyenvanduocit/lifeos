@@ -35,6 +35,7 @@ make build && scripts/install-tailscale.sh
 
 Lệnh này cài `lifeos web` thành LaunchAgent (bản tin buổi sáng lúc 06:30, đổi bằng `BRIEF_AT=07:00`, tắt bằng `BRIEF_AT=`), tự khởi động cùng máy và tự chạy lại khi chết. App mở ở `https://<máy>.<tailnet>.ts.net:8443` qua `tailscale serve`, chỉ trong tailnet. Link WebTransport (UDP 7421) nghe thẳng trên IP Tailscale, vì `tailscale serve` không chuyển UDP. Cert của link tự xoay mỗi 6 ngày. Log ở `~/Library/Logs/lifeos-web.log`. Web không có đăng nhập: ai trong tailnet của bạn cũng mở được.
 
+
 Gỡ: `launchctl bootout gui/$(id -u)/com.lifeos.web && tailscale serve --https=8443 off`.
 
 Chưa biết chat id Telegram của mình? Cứ chạy bot rồi nhắn cho nó; bot sẽ trả lời chat id của bạn.
