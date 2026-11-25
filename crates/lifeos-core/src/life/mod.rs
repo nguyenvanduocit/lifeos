@@ -4,9 +4,20 @@
 //! One module per area of a life; this one holds what they share: opening,
 //! the derived document index, and reading and writing documents.
 
-pub mod chats;
+pub mod accounts;
+pub mod cards;
+pub mod images;
+pub mod questions;
+pub mod handoffs;
+pub mod sessions;
+pub mod teachings;
+pub mod workflows;
+pub mod widgets;
 pub mod crew;
 pub mod connections;
+pub mod vault_items;
+pub mod google;
+pub mod desktop;
 pub mod routines;
 pub mod dashboard;
 pub mod goals;
@@ -256,11 +267,15 @@ impl Life {
     }
 
     fn find(&self, kind: Kind, id: &str) -> Result<Doc> {
+        let alias = id.split_once('_')
+            .filter(|(prefix, _)| *prefix == kind.as_str())
+            .map(|(_, key)| key);
         let path: Option<String> = self
             .conn
             .query_row(
-                "SELECT path FROM docs WHERE kind = ?1 AND id = ?2",
-                params![kind.as_str(), id],
+                "SELECT path FROM docs WHERE kind = ?1 AND (id = ?2 OR id = ?3 OR path = ?2)
+                 ORDER BY (path = ?2) DESC, (id = ?3) DESC, path LIMIT 1",
+                params![kind.as_str(), id, alias],
                 |r| r.get(0),
             )
             .optional()?;
@@ -278,21 +293,33 @@ impl Life {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Reads any document by its id (file stem) or vault-relative path.
+    /// Reads a document by its prefixed ID, legacy file stem or vault-relative path.
     pub fn read_doc(&self, id_or_path: &str) -> Result<DocFull> {
-        let found: Option<(String, String)> = self
-            .conn
-            .query_row(
-                "SELECT kind, path FROM docs WHERE path = ?1 OR id = ?1 ORDER BY path = ?1 DESC LIMIT 1",
-                [id_or_path],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
+        Ok(full(self.resolve_doc(id_or_path)?))
+    }
+
+    fn resolve_doc(&self, id_or_path: &str) -> Result<Doc> {
+        if let Some((prefix, _)) = id_or_path.split_once('_')
+            && let Some(kind) = Kind::parse(prefix)
+            && !id_or_path.contains('/')
+        {
+            return self.find(kind, id_or_path);
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT kind, path FROM docs WHERE path = ?1 OR id = ?1 ORDER BY path = ?1 DESC LIMIT 2",
+        )?;
+        let mut rows = stmt.query([id_or_path])?;
+        let found: Option<(String, String)> = rows.next()?
+            .map(|row| Ok::<_, rusqlite::Error>((row.get(0)?, row.get(1)?)))
+            .transpose()?;
+        if found.as_ref().is_some_and(|(_, path)| path != id_or_path) && rows.next()?.is_some() {
+            bail!("ambiguous document '{id_or_path}'; use its prefixed ID or vault path");
+        }
         let Some((kind, path)) = found else {
             bail!("no document '{id_or_path}'");
         };
         let kind = Kind::parse(&kind).context("unknown kind in index")?;
-        Ok(full(self.vault.read(kind, &path)?))
+        self.vault.read(kind, &path)
     }
 
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>> {

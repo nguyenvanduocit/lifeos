@@ -6,6 +6,11 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+rust-version = "1.99"
+publish = false
+
+[workspace.dependencies]
+serde_json = "1"
 
 # The page's wasm (crates/lifeos-web-client/bind.sh): small over fast to build.
 [profile.wasm]

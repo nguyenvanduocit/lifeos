@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use anyhow::{Result, bail};
 use chrono::{Duration, NaiveDate};
 use rusqlite::params;
+use serde::Deserialize;
 
 use super::{Life, key, today};
 use lifeos_wire::{Metric, MetricPoint, MetricSeries};
@@ -43,6 +44,56 @@ input! {
 
 pub const SERIES_DAYS: u32 = 30;
 
+/// What the iPhone app reads from Apple Health, one value per day. Each lands
+/// in `metrics` under the name the owner already logs it by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Measure {
+    /// Sum for the day.
+    Steps,
+    /// Walking and running, km, sum for the day.
+    DistanceKm,
+    /// Asleep (core, deep, REM), hours, for the night that ended this day.
+    SleepHours,
+    /// Last weighing of the day, kg.
+    WeightKg,
+    /// Resting heart rate, bpm, average for the day.
+    RestingHeartRate,
+    /// HRV (SDNN), ms, average for the day.
+    HeartRateVariability,
+    /// Active energy, kcal, sum for the day.
+    ActiveEnergy,
+    /// Exercise minutes, sum for the day.
+    ExerciseMinutes,
+}
+
+impl Measure {
+    /// The metric name and unit it is kept under.
+    pub fn metric(self) -> (&'static str, &'static str) {
+        match self {
+            Measure::Steps => ("bước chân", "bước"),
+            Measure::DistanceKm => ("quãng đường", "km"),
+            Measure::SleepHours => ("giấc ngủ", "giờ"),
+            Measure::WeightKg => ("cân nặng", "kg"),
+            Measure::RestingHeartRate => ("nhịp tim nghỉ", "bpm"),
+            Measure::HeartRateVariability => ("hrv", "ms"),
+            Measure::ActiveEnergy => ("năng lượng hoạt động", "kcal"),
+            Measure::ExerciseMinutes => ("phút tập", "phút"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Reading {
+    pub day: NaiveDate,
+    pub measure: Measure,
+    pub value: f64,
+}
+
+/// The source Apple Health readings are kept under.
+pub const APPLE_HEALTH: &str = "apple-health";
+
 impl Life {
     pub fn log_metric(&self, m: LogMetric) -> Result<Metric> {
         let name = key(&m.name);
@@ -54,7 +105,9 @@ impl Life {
         }
         let day = m.date.unwrap_or_else(today);
         self.conn.execute(
-            "INSERT INTO metrics(day, name, value, unit, note) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO metrics(id, day, name, value, unit, note)
+                 VALUES ((SELECT MAX(COALESCE(MAX(id), 0),
+                    COALESCE((SELECT highest FROM retired_row_ids WHERE table_name = 'metrics'), 0)) + 1 FROM metrics), ?1, ?2, ?3, ?4, ?5)",
             params![day.to_string(), name, m.value, m.unit, m.note],
         )?;
         Ok(Metric {
@@ -65,6 +118,34 @@ impl Life {
             unit: m.unit,
             note: m.note,
         })
+    }
+
+    /// Keeps a device's readings: one row per source, metric and day, so sending
+    /// a day again (the app resends recent days on every sync) replaces it.
+    /// Returns how many readings were kept.
+    pub fn import_readings(&self, source: &str, readings: &[Reading]) -> Result<usize> {
+        if source.trim().is_empty() {
+            bail!("source is empty");
+        }
+        if let Some(r) = readings.iter().find(|r| !r.value.is_finite() || r.value < 0.0) {
+            bail!("{:?} on {} is not a measurement: {}", r.measure, r.day, r.value);
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut upsert = tx.prepare(
+                "INSERT INTO metrics(id, day, name, value, unit, note, source)
+                 VALUES ((SELECT MAX(COALESCE(MAX(id), 0),
+                    COALESCE((SELECT highest FROM retired_row_ids WHERE table_name = 'metrics'), 0)) + 1 FROM metrics), ?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(source, name, day) WHERE source IS NOT NULL
+                 DO UPDATE SET value = excluded.value, unit = excluded.unit, note = excluded.note",
+            )?;
+            for r in readings {
+                let (name, unit) = r.measure.metric();
+                upsert.execute(params![r.day.to_string(), name, r.value, unit, source_note(source), source])?;
+            }
+        }
+        tx.commit()?;
+        Ok(readings.len())
     }
 
     pub fn delete_metric(&self, id: i64) -> Result<()> {
@@ -123,6 +204,11 @@ impl Life {
     }
 }
 
+/// What an agent reading the metric sees of where it came from.
+fn source_note(source: &str) -> &str {
+    if source == APPLE_HEALTH { "Apple Health" } else { source }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,5 +240,29 @@ mod tests {
         assert_eq!(w.points.len(), 2);
         assert_eq!((w.latest, w.previous), (Some(69.2), Some(70.0)));
         assert!(life.log_metric(LogMetric { name: " ".into(), ..Default::default() }).is_err());
+    }
+
+    #[test]
+    fn readings_replace_their_own_day() {
+        let (_dir, life) = life();
+        let read = |measure, value, day: &str| Reading { day: d(day), measure, value };
+        life.log_metric(LogMetric { name: "cân nặng".into(), value: 70.0, date: Some(d("2026-11-24")), ..Default::default() })
+            .unwrap();
+        life.import_readings(
+            APPLE_HEALTH,
+            &[read(Measure::Steps, 4000.0, "2026-11-25"), read(Measure::WeightKg, 69.8, "2026-11-24")],
+        )
+        .unwrap();
+        // The day grew: the app sends it again.
+        life.import_readings(APPLE_HEALTH, &[read(Measure::Steps, 9000.0, "2026-11-25")]).unwrap();
+        let all = life
+            .metrics(&ListMetrics { from: Some(d("2026-11-20")), to: Some(d("2026-11-25")), ..Default::default() })
+            .unwrap();
+        let steps: Vec<_> = all.iter().filter(|m| m.name == "bước chân").collect();
+        assert_eq!(steps.len(), 1);
+        assert_eq!((steps[0].value, steps[0].unit.as_deref()), (9000.0, Some("bước")));
+        // A weight logged by hand stays beside the one the phone sent.
+        assert_eq!(all.iter().filter(|m| m.name == "cân nặng").count(), 2);
+        assert!(life.import_readings(APPLE_HEALTH, &[read(Measure::Steps, f64::NAN, "2026-11-25")]).is_err());
     }
 }

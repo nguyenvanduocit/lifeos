@@ -21,4 +21,8 @@ model?: string, effort?: Effort,
 /**
  * lifeos tools it may use (names from the tool list). Omit for every tool.
  */
-tools: Array<string>, };
+tools: Array<string>, 
+/**
+ * Connection names this member may use: external MCP servers, and the built-in `google` and `desktop`.
+ */
+connections: Array<string>, };

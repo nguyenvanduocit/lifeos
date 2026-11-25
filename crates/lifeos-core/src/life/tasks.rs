@@ -1,6 +1,6 @@
 //! Tasks: `tasks/<id>.md`, status open | done.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::{Duration, Local, NaiveDate};
 
 use super::{Life, today};
@@ -77,17 +77,14 @@ const TASK_ORDER: &str = "COALESCE(MIN(due, scheduled), due, scheduled) IS NULL,
 
 impl Life {
     pub fn add_task(&self, t: AddTask) -> Result<DocSummary> {
-        if let Some(goal) = &t.goal {
-            self.find(Kind::Goal, goal)
-                .with_context(|| format!("goal '{goal}' does not exist; list_goals shows ids"))?;
-        }
+        let goal = t.goal.as_deref().map(|id| self.find(Kind::Goal, id).map(|doc| doc.id)).transpose()?;
         let meta = Frontmatter {
             title: t.title.trim().to_string(),
             status: Some("open".into()),
             due: t.due,
             scheduled: t.scheduled,
             priority: t.priority.map(|p| p.as_str().to_string()),
-            goal: t.goal,
+            goal,
             tags: t.tags,
             created: Some(Local::now()),
             ..Default::default()
@@ -113,9 +110,7 @@ impl Life {
             m.priority = Some(p.as_str().to_string());
         }
         if let Some(goal) = u.goal {
-            self.find(Kind::Goal, &goal)
-                .with_context(|| format!("goal '{goal}' does not exist; list_goals shows ids"))?;
-            doc.meta.goal = Some(goal);
+            doc.meta.goal = Some(self.find(Kind::Goal, &goal)?.id);
         }
         if let Some(tags) = u.tags {
             doc.meta.tags = tags;
@@ -154,7 +149,8 @@ impl Life {
         };
         let mut tasks = self.docs_where(Kind::Task, status, TASK_ORDER)?;
         if let Some(goal) = &q.goal {
-            tasks.retain(|t| t.goal.as_deref() == Some(goal.as_str()));
+            let id = self.find(Kind::Goal, goal).map(|doc| doc.id).unwrap_or_else(|_| goal.clone());
+            tasks.retain(|t| t.goal.as_deref() == Some(id.as_str()));
         }
         Ok(tasks)
     }

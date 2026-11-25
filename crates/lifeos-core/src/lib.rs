@@ -42,6 +42,7 @@ macro_rules! choice {
     };
 }
 
+pub mod plugins;
 pub mod db;
 pub mod life;
 pub mod tools;

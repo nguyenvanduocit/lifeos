@@ -1,225 +1,275 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { ArrowUpRight, CalendarDays, HeartPulse, Inbox, ListChecks, Loader2, NotebookPen, Plus, Repeat, Sparkles, StickyNote, Sunrise, Target, Users, Wallet } from '@lucide/vue'
+// Today, drawn as Relay draws its home: the day and week, a greeting, a strip of figures that each carry their frame,
+// then the day's tasks beside the morning brief, the week beside the habits, and the life areas that need a look.
+import { computed, ref, type Component } from 'vue'
+import {
+  Cake, CalendarDays, Check, CircleCheck, FileText, Flame, HeartPulse, Inbox, ListChecks, Loader2, MessageCircle, PenLine, Plus, Repeat, RefreshCw, Sparkles, Target, Timer, Users, Wallet,
+} from '@lucide/vue'
 import { useRead } from '../data'
-import { BRIEF_ASK, busy, conversation, ASSISTANT, say, writeBrief } from '../assistant'
-import { compact, greeting, longDay, money, num, shortDay, todayIso } from '../format'
-import AskChip from '../components/AskChip.vue'
-import Bars from '../components/Bars.vue'
-import BudgetRow from '../components/BudgetRow.vue'
-import Empty from '../components/Empty.vue'
-import GoalCard from '../components/GoalCard.vue'
-import HabitRow from '../components/HabitRow.vue'
-import Line from '../components/Line.vue'
+import { ask, briefing, busy, writeBrief } from '../assistant'
+import { greeting, headDay, isoDay, isoWeek, moneyShort, num, parseDay, shortDay, todayIso } from '../format'
+import LoadState from '../components/LoadState.vue'
 import Markdown from '../components/Markdown.vue'
-import PersonRow from '../components/PersonRow.vue'
-import Section from '../components/Section.vue'
-import TaskRow from '../components/TaskRow.vue'
+import AskChip from '../components/AskChip.vue'
+import Avatar from '../components/Avatar.vue'
+import PageHeader from '../components/ds/PageHeader.vue'
+import StatStrip from '../components/ds/StatStrip.vue'
+import Panel from '../components/ds/Panel.vue'
+import { plugins } from '../plugins'
+import PluginFrame from '../components/PluginFrame.vue'
+import WidgetSlot from '../components/WidgetSlot.vue'
+import TableHead from '../components/ds/TableHead.vue'
+import StatusTag from '../components/ds/StatusTag.vue'
+import TaskLine from '../components/tasks/TaskLine.vue'
+import { dayOf, whenOf } from '../components/tasks/when'
 import { Button } from '../components/ui/button'
-import { Card, CardContent } from '../components/ui/card'
 
-const { data: d, error, loading } = useRead('dashboard')
+const { data: d, error, loading, retry } = useRead('dashboard')
+const today = computed(() => d.value?.date ?? todayIso())
 
-const todayTasks = computed(() => (d.value ? [...d.value.tasks.overdue, ...d.value.tasks.today] : []))
-const briefIsToday = computed(() => !!d.value?.brief && d.value.brief.summary.path.includes(d.value.date))
+const goalTitle = computed(() => new Map((d.value?.goals ?? []).map((g) => [g.summary.id, g.summary.title])))
+const dueToday = computed(() => (d.value ? [...d.value.tasks.overdue, ...d.value.tasks.today] : []))
+const briefIsToday = computed(() => !!d.value?.brief && d.value.brief.summary.path.includes(today.value))
 const primary = computed(() => {
   const m = d.value?.money
   return m?.currencies.find((c) => c.currency === m.primary_currency) ?? m?.currencies[0]
 })
-const spendBars = computed(() => (d.value?.money.daily_spending ?? []).map((p) => ({ label: shortDay(p.day), value: p.amount })))
-const metrics = computed(() => {
-  const dashboard = d.value
-  if (!dashboard) return []
-  const overdue = dashboard.tasks.overdue.length
-  const tracked = dashboard.habits.length
-  const done = dashboard.habits.filter((habit) => habit.done_today).length
-  return [
-    {
-      title: 'Việc cần làm', to: '/tasks', icon: ListChecks, tone: 'focus', value: num(todayTasks.value.length),
-      detail: overdue ? num(overdue) + ' việc quá hạn' : num(dashboard.tasks.done_today.length) + ' đã xong hôm nay',
-      urgent: overdue > 0,
-    },
-    {
-      title: 'Thói quen hôm nay', to: '/habits', icon: Repeat, tone: 'routine', value: tracked ? num(done) + '/' + num(tracked) : '—',
-      detail: tracked ? 'Đã ghi nhận' : 'Chưa theo dõi thói quen',
-    },
-    {
-      title: 'Chi tiêu tháng này', to: '/money', icon: Wallet, tone: 'money',
-      value: primary.value ? money(primary.value.spending, primary.value.currency) : '—',
-      detail: primary.value ? 'Tiền tệ chính · ' + primary.value.currency : 'Chưa có giao dịch',
-    },
-    {
-      title: 'Inbox', to: '/inbox', icon: Inbox, tone: 'capture', value: num(dashboard.inbox.length),
-      detail: dashboard.inbox.length ? 'Mục đang chờ xử lý' : 'Inbox trống',
-    },
-  ]
+const budgetTotal = computed(() => {
+  const m = d.value?.money
+  if (!m || !primary.value) return null
+  const lines = m.budgets.filter((b) => b.currency === primary.value?.currency)
+  return lines.length ? { budget: lines.reduce((a, b) => a + b.budget, 0), spent: lines.reduce((a, b) => a + b.spent, 0) } : null
 })
+const daysLeftInMonth = computed(() => {
+  const t = parseDay(today.value)
+  return new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate() - t.getDate()
+})
+
+const strip = computed(() => {
+  const v = d.value
+  if (!v) return []
+  const done = v.tasks.done_today.length
+  const habitsDone = v.habits.filter((h) => h.done_today).length
+  const overdue = v.tasks.overdue.length
+  const items: { key: string; icon: Component; to?: string; value: string; label: string; delta?: string; deltaTone?: 'good' | 'bad' | 'flat'; urgent?: boolean }[] = [
+    { key: 'tasks', icon: CircleCheck, to: '/tasks', value: `${done}/${done + dueToday.value.length}`, label: 'tasks done today',
+      delta: overdue ? `${overdue} late` : undefined, deltaTone: 'bad', urgent: overdue > 0 },
+    { key: 'habits', icon: Repeat, to: '/habits', value: `${habitsDone}/${v.habits.length}`, label: 'habits logged' },
+  ]
+  if (primary.value) {
+    items.push({ key: 'money', icon: Wallet, to: '/money', value: moneyShort(primary.value.spending, primary.value.currency),
+      label: 'spent this month', delta: budgetTotal.value ? `${Math.round((budgetTotal.value.spent / budgetTotal.value.budget) * 100)}% of budgets` : undefined,
+      deltaTone: budgetTotal.value && budgetTotal.value.spent > budgetTotal.value.budget ? 'bad' : 'flat' })
+  }
+  items.push({ key: 'inbox', icon: Inbox, to: '/inbox', value: String(v.inbox.length), label: 'waiting in inbox' })
+  return items
+})
+
+// The week, Monday first; a day shows a dot when something is planned or due on it.
+const week = computed(() => {
+  const t = parseDay(today.value)
+  const monday = new Date(t)
+  monday.setDate(t.getDate() - ((t.getDay() + 6) % 7))
+  return Array.from({ length: 7 }, (_, i) => {
+    const day = new Date(monday)
+    day.setDate(monday.getDate() + i)
+    const iso = isoDay(day)
+    return { iso, short: new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(day).slice(0, 2), n: day.getDate() }
+  })
+})
+const allOpen = computed(() => (d.value ? [...d.value.tasks.overdue, ...d.value.tasks.today, ...d.value.tasks.upcoming] : []))
+const picked = ref<string | null>(null)
+const pickedDay = computed(() => picked.value ?? today.value)
+const onDay = computed(() => allOpen.value.filter((t) => (pickedDay.value === today.value ? whenOf(t, today.value)?.tone === 'critical' || dayOf(t) === today.value : dayOf(t) === pickedDay.value)))
+const busyDays = computed(() => new Set(allOpen.value.map(dayOf).filter(Boolean)))
+
+const habitWeek = (recent: number[]) => recent.slice(-7)
+// The Goal column shows only when one of today's tasks serves a goal.
+const withGoal = computed(() => [...dueToday.value, ...(d.value?.tasks.done_today ?? [])].some((t) => t.goal))
+const TASK_GRID = computed(() => withGoal.value ? 'minmax(0,2.2fr) minmax(0,1.2fr) minmax(0,0.9fr) minmax(0,0.6fr)' : 'minmax(0,3fr) minmax(0,1fr) minmax(0,0.6fr)')
+const taskCols = computed(() => [
+  { label: 'Task', icon: ListChecks },
+  ...(withGoal.value ? [{ label: 'Goal', icon: Target, class: 'hidden @min-[44rem]:flex' }] : []),
+  { label: 'When', icon: CalendarDays },
+  { label: 'Priority', icon: Flame, class: 'hidden @min-[44rem]:flex' },
+])
 </script>
 
 <template>
-  <div class="@container overview space-y-6">
-    <header class="overview-hero relative isolate flex min-h-[248px] flex-col justify-end overflow-hidden rounded-[1.4rem] px-5 pb-6 pt-16 text-white @min-[34rem]:min-h-[290px] @min-[34rem]:px-8 @min-[34rem]:pb-8">
-      <p class="mb-3 flex items-center gap-2 text-xs font-semibold text-white/85">
-        <CalendarDays class="size-4" /> {{ longDay(d?.date ?? todayIso()) }}
-      </p>
-      <h1 class="font-display text-[clamp(2.5rem,7cqi,4.65rem)] leading-[.98] tracking-[-.04em]">{{ greeting() }}</h1>
-      <div class="mt-5 flex flex-wrap items-center gap-2">
-        <Button type="button" class="rounded-full bg-[#e4edca] px-4 text-[#23341c] hover:bg-white" @click="say('Ghi vào inbox: ')">
-          <Plus /> Ghi nhanh
-        </Button>
-        <AskChip class="h-9 rounded-full border-white/40 bg-black/25 px-3 text-white hover:bg-black/45 hover:text-white" words="Hôm nay mình nên tập trung vào gì?" label="Lên kế hoạch" now />
-        <AskChip class="h-9 rounded-full border-white/40 bg-black/25 px-3 text-white hover:bg-black/45 hover:text-white" words="Nhìn lại tuần này và viết review tuần giúp mình." label="Review tuần" />
-      </div>
-    </header>
+  <LoadState :loading="loading && !d" :error="error" label="today" class="mb-4" @retry="retry" />
+  <template v-if="d">
+    <PageHeader :title="greeting()">
+      <template #eyebrow>
+        <span>{{ headDay(today) }}</span><span class="text-ink3">•</span><span>Week {{ isoWeek(today) }}</span>
+      </template>
+      <AskChip size="sm" :icon="FileText" words="Review this week and write a weekly summary." label="Weekly review" />
+      <AskChip size="sm" primary :icon="Plus" words="Capture in Inbox: " label="Capture" />
+      <template #strip><StatStrip :items="strip" /></template>
+    </PageHeader>
 
-    <p v-if="error" role="alert" class="rounded-xl border border-critical/30 bg-critical-wash px-4 py-3 text-sm">
-      Không tải được tổng quan. {{ error }}
-    </p>
-    <p v-if="!d && loading" role="status" class="flex items-center gap-2 text-sm text-ink2">
-      <Loader2 class="size-4 motion-safe:animate-spin" /> Đang tải tổng quan…
-    </p>
+    <WidgetSlot class="mb-5" />
 
-    <template v-if="d">
-      <div class="overview-metrics grid grid-cols-2 overflow-hidden rounded-2xl border border-line bg-panel @min-[46rem]:grid-cols-4" aria-label="Tóm tắt hôm nay">
-        <RouterLink v-for="metric in metrics" :key="metric.to" :to="metric.to" :data-tone="metric.tone"
-          class="metric-cell min-w-0 p-4 transition-colors hover:bg-panel2 focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring @min-[54rem]:p-5">
-          <div class="flex items-center justify-between gap-2">
-            <span class="metric-icon grid size-8 shrink-0 place-items-center rounded-lg">
-              <component :is="metric.icon" class="size-4" />
+    <div class="grid gap-5 @min-[60rem]:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+      <Panel title="Today’s tasks" :icon="ListChecks" :count="dueToday.length ? `${dueToday.length} open` : undefined" to="/tasks">
+        <template #actions>
+          <AskChip :icon="Plus" words="Add a task: " label="Add task" />
+          <AskChip :icon="Sparkles" words="What should I focus on today?" label="Plan today" />
+        </template>
+        <div v-if="dueToday.length || d.tasks.done_today.length" role="table" aria-label="Today’s tasks">
+          <TableHead :grid="TASK_GRID" :cols="taskCols" />
+          <TaskLine v-for="t in dueToday" :key="t.id" :task="t" :goal="t.goal ? goalTitle.get(t.goal) : undefined" :show-goal="withGoal" :grid="TASK_GRID" :to="`/tasks/${t.id}`" />
+          <TaskLine v-for="t in d.tasks.done_today" :key="t.id" :task="t" done :goal="t.goal ? goalTitle.get(t.goal) : undefined" :show-goal="withGoal" :grid="TASK_GRID" :to="`/tasks/${t.id}`" />
+        </div>
+        <div v-else class="flex items-center gap-4 border-t border-line px-5 py-6">
+          <span class="grid size-10 place-items-center rounded-xl bg-panel2"><Check class="size-5 text-ink2" /></span>
+          <div class="min-w-0 flex-1">
+            <p class="font-medium">Nothing due today</p>
+            <p class="text-[13.5px] text-ink2">{{ d.tasks.upcoming.length }} coming this week · {{ d.tasks.anytime.length }} without a date</p>
+          </div>
+        </div>
+      </Panel>
+
+      <Panel title="Morning brief" :icon="Sparkles" :count="d.brief ? (briefIsToday ? 'Today' : 'Earlier') : undefined" :count-tone="briefIsToday ? 'signal' : 'neutral'" pad>
+        <Markdown v-if="d.brief" :source="d.brief.body" class="brief text-[14.5px] leading-relaxed" />
+        <p v-else class="text-[14.5px] leading-relaxed text-ink2">No brief yet today. The Assistant can sum up your schedule, what is late and what matters most.</p>
+        <div class="mt-5 flex flex-wrap items-center gap-2">
+          <Button type="button" class="h-9 rounded-[10px] px-3.5" :disabled="busy()" @click="writeBrief">
+            <Loader2 v-if="briefing" class="motion-safe:animate-spin" /><RefreshCw v-else />
+            {{ briefIsToday ? 'Refresh' : 'Write brief' }}
+          </Button>
+          <AskChip v-if="d.brief" :icon="MessageCircle" words="About today’s brief: " label="Ask about it" />
+        </div>
+      </Panel>
+    </div>
+
+    <div class="mt-5 grid gap-5 @min-[60rem]:grid-cols-2">
+      <Panel title="This week" :icon="CalendarDays" :count="`${d.tasks.upcoming.length + dueToday.length} planned`">
+        <div class="grid grid-cols-7 border-y border-line px-3 py-3" role="radiogroup" aria-label="Day of the week">
+          <button v-for="w in week" :key="w.iso" type="button" role="radio" :aria-checked="pickedDay === w.iso"
+            class="mx-auto flex w-12 flex-col items-center gap-0.5 rounded-xl py-1.5 transition-colors hover:bg-panel2 focus-visible:outline-2 focus-visible:outline-ring"
+            :class="w.iso === today ? 'bg-signal text-signal-fg hover:bg-signal' : pickedDay === w.iso ? 'bg-panel3' : ''"
+            @click="picked = w.iso">
+            <span class="text-[12.5px]" :class="w.iso === today ? 'text-signal-fg/75' : 'text-ink3'">{{ w.short }}</span>
+            <span class="text-[17px] font-semibold tabular-nums">{{ w.n }}</span>
+            <span class="size-1 rounded-full" :class="busyDays.has(w.iso) ? (w.iso === today ? 'bg-signal-fg' : 'bg-ink3') : 'bg-transparent'" />
+          </button>
+        </div>
+        <ul v-if="onDay.length" class="divide-y divide-line">
+          <li v-for="t in onDay" :key="t.id" class="relative flex items-center gap-3 px-5 py-3 hover:bg-panel2/70">
+            <span class="w-[3px] self-stretch rounded-full" :class="whenOf(t, today)?.tone === 'critical' ? 'bg-critical' : t.priority === 'high' ? 'bg-ink' : 'bg-line2'" aria-hidden="true" />
+            <div class="min-w-0 flex-1">
+              <RouterLink :to="`/tasks/${t.id}`" class="block truncate text-[14.5px] font-medium after:absolute after:inset-0">{{ t.title }}</RouterLink>
+              <p class="truncate text-[13px] text-ink2">
+                <span :class="whenOf(t, today)?.tone === 'critical' ? 'text-critical' : ''">{{ whenOf(t, today)?.text }}</span>
+                <template v-if="t.goal && goalTitle.get(t.goal)"> <span class="text-ink3">|</span> {{ goalTitle.get(t.goal) }}</template>
+              </p>
+            </div>
+            <StatusTag v-if="t.priority === 'high'" tone="critical">High</StatusTag>
+          </li>
+        </ul>
+        <p v-else class="px-5 py-6 text-[14px] text-ink2">Nothing planned for {{ pickedDay === today ? 'today' : shortDay(pickedDay) }}.</p>
+      </Panel>
+
+      <Panel title="Habits" :icon="Repeat" :count="d.habits.length ? `${d.habits.filter((h) => !h.done_today).length} left today` : undefined" :count-tone="d.habits.some((h) => !h.done_today) ? 'signal' : 'neutral'" to="/habits">
+        <template #actions><AskChip :icon="Plus" words="I want to start tracking the habit " label="New habit" /></template>
+        <ul v-if="d.habits.length" class="divide-y divide-line border-t border-line">
+          <li v-for="h in d.habits" :key="h.habit" class="flex items-center gap-4 px-5 py-3">
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-[14.5px] font-medium first-letter:uppercase">{{ h.habit }}</p>
+              <p class="flex items-center gap-1 text-[13px] text-ink2">
+                <Flame class="size-3.5" :class="h.streak >= 3 ? 'text-critical' : 'text-ink3'" aria-hidden="true" />{{ h.streak }}-day streak
+                <span class="text-ink3">·</span>{{ h.done_this_week }}/{{ h.target_per_week }} this week
+              </p>
+            </div>
+            <div class="hidden gap-1 sm:flex" :aria-label="`Last 7 days: ${habitWeek(h.recent).filter((v) => v > 0).length} done`">
+              <span v-for="(v, i) in habitWeek(h.recent)" :key="i" class="size-3.5 rounded-[4px]" :class="v > 0 ? 'bg-ink/85' : 'bg-panel3'" />
+            </div>
+            <button type="button"
+              class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[10px] border px-3 text-[13px] font-medium transition-colors disabled:cursor-default"
+              :class="h.done_today ? 'border-transparent bg-signal/40 text-signal-ink dark:bg-signal/15' : 'border-line2 hover:bg-panel2'"
+              :disabled="h.done_today || busy()" @click="ask(`Log “${h.habit}” for today.`)">
+              <Check class="size-3.5" />{{ h.done_today ? 'Done' : 'Log' }}
+            </button>
+          </li>
+        </ul>
+        <p v-else class="border-t border-line px-5 py-6 text-[14px] text-ink2">No habits yet.</p>
+      </Panel>
+    </div>
+
+    <div class="mt-5 grid gap-5 @min-[48rem]:grid-cols-2 @min-[64rem]:grid-cols-3">
+      <Panel title="Money" :icon="Wallet" to="/money" pad>
+        <template v-if="primary">
+          <p class="text-[30px] leading-none font-semibold tracking-[-0.02em] tabular-nums">{{ moneyShort(primary.spending, primary.currency) }}</p>
+          <p class="mt-1.5 text-[13.5px] text-ink2">
+            spent this month · {{ daysLeftInMonth }} days left
+            <template v-if="budgetTotal"> · budgets <span class="tabular-nums" :class="budgetTotal.spent > budgetTotal.budget ? 'text-critical' : 'text-ink'">{{ moneyShort(budgetTotal.spent, primary.currency) }} / {{ moneyShort(budgetTotal.budget, primary.currency) }}</span></template>
+          </p>
+          <ul v-if="d.money.budgets.length" class="mt-4 space-y-2.5">
+            <li v-for="b in [...d.money.budgets].sort((a, z) => z.spent / z.budget - a.spent / a.budget).slice(0, 4)" :key="b.category + b.currency" class="grid grid-cols-[6.5rem_minmax(0,1fr)_auto] items-center gap-3 text-[13.5px]">
+              <span class="truncate first-letter:uppercase">{{ b.category }}</span>
+              <span class="h-1.5 overflow-hidden rounded-full bg-panel3"><span class="block h-full rounded-full" :class="b.spent > b.budget ? 'bg-critical' : 'bg-ink'" :style="{ width: Math.min(100, (b.spent / b.budget) * 100) + '%' }" /></span>
+              <span class="text-ink2 tabular-nums" :class="b.spent > b.budget ? 'text-critical' : ''">{{ Math.round((b.spent / b.budget) * 100) }}%</span>
+            </li>
+          </ul>
+        </template>
+        <p v-else class="text-[14px] text-ink2">No spending logged this month.</p>
+        <AskChip class="mt-4" :icon="Plus" words="I just spent " label="Log expense" />
+      </Panel>
+
+      <Panel title="People" :icon="Users" to="/people" :count="d.people_due.length ? `${d.people_due.length} to reach out` : undefined">
+        <ul v-if="d.people_due.length || d.birthdays.length" class="divide-y divide-line border-t border-line">
+          <li v-for="p in d.birthdays.slice(0, 2)" :key="'b' + p.id" class="relative flex items-center gap-3 px-5 py-3 hover:bg-panel2/70">
+            <Avatar :name="p.name" :size="32" />
+            <div class="min-w-0 flex-1">
+              <RouterLink :to="`/people/${p.id}`" class="block truncate text-[14.5px] font-medium after:absolute after:inset-0">{{ p.name }}</RouterLink>
+              <p class="truncate text-[13px] text-ink2 first-letter:uppercase">{{ p.relation ?? 'Contact' }}</p>
+            </div>
+            <StatusTag tone="warning"><Cake class="-ml-0.5 size-3" />{{ p.days_to_birthday === 0 ? 'Birthday today' : `Birthday in ${p.days_to_birthday}d` }}</StatusTag>
+          </li>
+          <li v-for="p in d.people_due.filter((x) => !d!.birthdays.slice(0, 2).some((b) => b.id === x.id)).slice(0, 4)" :key="'c' + p.id" class="relative flex items-center gap-3 px-5 py-3 hover:bg-panel2/70">
+            <Avatar :name="p.name" :size="32" />
+            <div class="min-w-0 flex-1">
+              <RouterLink :to="`/people/${p.id}`" class="block truncate text-[14.5px] font-medium after:absolute after:inset-0">{{ p.name }}</RouterLink>
+              <p class="truncate text-[13px] text-ink2">{{ p.days_since_contact === null ? 'Never in touch' : `Last talked ${p.days_since_contact}d ago` }} · every {{ p.contact_every_days }}d</p>
+            </div>
+          </li>
+        </ul>
+        <p v-else class="border-t border-line px-5 py-6 text-[14px] text-ink2">Everyone is in touch. No birthdays in the next 30 days.</p>
+      </Panel>
+
+      <Panel title="Health" :icon="HeartPulse" to="/health">
+        <ul v-if="d.health.length" class="divide-y divide-line border-t border-line">
+          <li v-for="m in d.health.slice(0, 4)" :key="m.name" class="flex items-center gap-4 px-5 py-3">
+            <div class="w-28 min-w-0">
+              <p class="truncate text-[13px] text-ink2 first-letter:uppercase">{{ m.name }}</p>
+              <p class="text-[17px] font-semibold tabular-nums">{{ m.latest !== null ? num(m.latest) : '–' }} <span class="text-[12.5px] font-normal text-ink3">{{ m.unit }}</span></p>
+            </div>
+            <div class="flex h-8 flex-1 items-end gap-[2px]" aria-hidden="true">
+              <span v-for="(p, i) in m.points.slice(-24)" :key="p.day" class="flex-1 rounded-[2px]"
+                :class="i === Math.min(23, m.points.length - 1) ? 'bg-ink' : 'bg-line2'"
+                :style="{ height: (() => { const pts = m.points.slice(-24).map((x) => x.value); const lo = Math.min(...pts), hi = Math.max(...pts); return 20 + (hi === lo ? 40 : ((p.value - lo) / (hi - lo)) * 80) + '%' })() }" />
+            </div>
+            <span v-if="m.latest !== null && m.previous !== null && m.latest !== m.previous" class="w-12 text-right text-[12.5px] tabular-nums text-ink2">
+              {{ m.latest > m.previous ? '+' : '−' }}{{ num(Math.abs(m.latest - m.previous)) }}
             </span>
-            <ArrowUpRight class="size-4 text-ink3" aria-hidden="true" />
-          </div>
-          <div class="mt-2.5 text-xs font-semibold text-ink2">{{ metric.title }}</div>
-          <div class="mt-1 break-words text-[clamp(1.25rem,3cqi,1.9rem)] leading-none font-semibold tracking-tight tabular-nums">{{ metric.value }}</div>
-          <div class="mt-1.5 text-xs" :class="metric.urgent ? 'font-semibold text-critical' : 'text-ink2'">{{ metric.detail }}</div>
-        </RouterLink>
-      </div>
-
-      <div class="grid gap-4 @min-[47rem]:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
-        <Section :icon="ListChecks" title="Việc hôm nay" to="/tasks" :count="todayTasks.length">
-          <template v-if="todayTasks.length || d.tasks.done_today.length" #actions><AskChip words="Thêm việc: " label="Thêm" /></template>
-          <ul v-if="todayTasks.length || d.tasks.done_today.length">
-            <TaskRow v-for="t in todayTasks" :key="t.id" :task="t" />
-            <TaskRow v-for="t in d.tasks.done_today" :key="t.id" :task="t" done />
-          </ul>
-          <div v-else class="rounded-xl border border-dashed border-line bg-bg p-4">
-            <p class="text-sm font-semibold">Hôm nay chưa có việc nào</p>
-            <p class="mt-1 text-xs text-ink2">Thêm một việc hoặc nhờ Assistant chọn ưu tiên.</p>
-            <Button type="button" variant="outline" size="sm" class="mt-3 rounded-full" @click="say('Thêm việc: ')">
-              <Plus /> Thêm việc
-            </Button>
-          </div>
-          <p v-if="d.tasks.upcoming.length || d.tasks.anytime.length" class="mt-2 text-xs text-ink3">{{ d.tasks.upcoming.length }} việc trong 7 ngày tới · {{ d.tasks.anytime.length }} việc chưa xếp lịch</p>
-        </Section>
-
-        <Card class="brief-card min-w-0 gap-0 rounded-2xl border-line py-5 shadow-none">
-          <CardContent class="px-5">
-            <div class="flex flex-wrap items-center gap-2.5">
-              <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-violet-wash text-violet-text">
-                <Sunrise class="size-4" />
-              </span>
-              <h2 class="text-base font-semibold">Bản tin sáng</h2>
-              <span v-if="d.brief && !briefIsToday" class="text-xs text-ink2">Bản tin trước</span>
-            </div>
-            <Markdown v-if="d.brief" :source="d.brief.body" class="mt-3 text-sm" />
-            <p v-else class="mt-3 text-sm leading-relaxed text-ink2">Nhờ Assistant tóm tắt lịch, việc quá hạn và các ưu tiên hôm nay.</p>
-            <Button type="button" variant="outline" size="sm" class="mt-4 rounded-full" :disabled="busy()" @click="writeBrief">
-              <Loader2 v-if="conversation(ASSISTANT).pending?.ask === BRIEF_ASK" class="motion-safe:animate-spin" />
-              <Sparkles v-else />
-              {{ briefIsToday ? 'Viết lại bản tin' : 'Viết bản tin' }}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div class="grid gap-4 @min-[35rem]:grid-cols-2 @min-[63rem]:grid-cols-3" aria-label="Các lĩnh vực">
-        <Section :icon="Repeat" title="Thói quen" to="/habits">
-          <template #actions><AskChip words="Mình muốn bắt đầu thói quen " label="Thêm" /></template>
-          <ul v-if="d.habits.length">
-            <HabitRow v-for="h in d.habits" :key="h.habit" :habit="h" :today="d.date" :weeks="6" />
-          </ul>
-          <Empty v-else text="Chưa theo dõi thói quen nào." words="Mình muốn bắt đầu thói quen " label="Bắt đầu một thói quen" />
-        </Section>
-
-        <Section :icon="Target" title="Mục tiêu" to="/goals" :count="d.goals.length">
-          <ul v-if="d.goals.length" class="divide-y divide-line">
-            <GoalCard v-for="g in d.goals" :key="g.summary.id" :goal="g" />
-          </ul>
-          <Empty v-else text="Chưa có mục tiêu nào." words="Giúp mình đặt mục tiêu cho năm nay." label="Đặt mục tiêu" />
-        </Section>
-
-        <Section :icon="Users" title="Mối quan hệ" to="/people">
-          <ul v-if="d.people_due.length || d.birthdays.length">
-            <PersonRow v-for="p in d.people_due.slice(0, 5)" :key="'c' + p.id" :person="p" />
-            <PersonRow v-for="p in d.birthdays" :key="'b' + p.id" :person="p" show="birthday" />
-          </ul>
-          <Empty v-else text="Không ai cần liên lạc gấp, không sinh nhật nào trong 30 ngày." words="Mình muốn lifeos nhắc giữ liên lạc với " label="Thêm người quan trọng" />
-        </Section>
-
-        <Section :icon="Wallet" title="Tài chính tháng này" to="/money">
-          <template #actions><AskChip words="Vừa chi " label="Ghi chi tiêu" /></template>
-          <template v-if="primary">
-            <div class="mb-3 flex flex-wrap gap-x-6 gap-y-2">
-              <div>
-                <div class="text-xs text-ink3">Đã chi</div>
-                <div class="text-lg font-semibold tabular-nums">{{ money(primary.spending, primary.currency) }}</div>
-              </div>
-              <div>
-                <div class="text-xs text-ink3">Thu</div>
-                <div class="text-lg font-semibold tabular-nums">{{ money(primary.income, primary.currency) }}</div>
-              </div>
-            </div>
-            <Bars v-if="spendBars.length" :points="spendBars" :format="(v) => compact(v)" :height="70" />
-            <ul v-if="d.money.budgets.length" class="mt-2">
-              <BudgetRow v-for="b in d.money.budgets.slice(0, 4)" :key="b.category + b.currency" :line="b" />
-            </ul>
-          </template>
-          <Empty v-else text="Tháng này chưa ghi khoản nào." words="Vừa chi " label="Ghi khoản chi đầu tiên" />
-        </Section>
-
-        <Section :icon="HeartPulse" title="Sức khoẻ" to="/health">
-          <template #actions><AskChip words="Hôm nay mình " label="Ghi chỉ số" /></template>
-          <ul v-if="d.health.length" class="space-y-2">
-            <li v-for="m in d.health.slice(0, 4)" :key="m.name" class="flex items-center gap-3">
-              <div class="w-28 shrink-0">
-                <div class="truncate text-xs first-letter:uppercase text-ink2">{{ m.name }}</div>
-                <div class="text-sm font-semibold tabular-nums">{{ m.latest !== null ? num(m.latest) : '–' }} <span class="text-xs font-normal text-ink3">{{ m.unit }}</span></div>
-              </div>
-              <Line class="flex-1" :points="m.points" :unit="m.unit" spark />
-            </li>
-          </ul>
-          <Empty v-else text="Chưa có chỉ số nào trong 30 ngày qua." words="Hôm nay mình nặng " label="Ghi cân nặng, giấc ngủ…" />
-        </Section>
-
-        <Section :icon="NotebookPen" title="Nhật ký" to="/journal">
-          <template #actions><AskChip :words="d.journal_written_today ? 'Ghi thêm vào nhật ký hôm nay: ' : 'Viết nhật ký hôm nay: '" label="Viết" /></template>
-          <ul v-if="d.journal.length" class="space-y-2">
-            <li v-for="j in d.journal.slice(0, 3)" :key="j.day">
-              <RouterLink :to="`/doc/${j.day}`" class="text-xs font-medium text-ink2 hover:underline">{{ longDay(j.day) }}</RouterLink>
-              <p class="line-clamp-2 text-sm">{{ j.excerpt }}</p>
-            </li>
-          </ul>
-          <Empty v-else text="Chưa có trang nhật ký nào." words="Viết nhật ký hôm nay: " label="Viết trang đầu tiên" />
-        </Section>
-
-        <Section :icon="Inbox" title="Inbox" to="/inbox" :count="d.inbox.length">
-          <ul v-if="d.inbox.length" class="space-y-1 text-sm">
-            <li v-for="i in d.inbox.slice(0, 5)" :key="i.id" class="truncate">· {{ i.text }}</li>
-          </ul>
-          <Empty v-else text="Inbox trống." />
-          <div class="mt-2 flex gap-1.5">
-            <AskChip words="Ghi vào inbox: " label="Ghi nhanh" />
-            <AskChip v-if="d.inbox.length" words="Phân loại inbox giúp mình." label="Phân loại" now />
-          </div>
-        </Section>
-
-        <Section :icon="StickyNote" title="Ghi chú gần đây" to="/notes">
-          <ul v-if="d.notes.length" class="space-y-1 text-sm">
-            <li v-for="n in d.notes" :key="n.id"><RouterLink :to="`/doc/${n.id}`" class="hover:underline">{{ n.title }}</RouterLink></li>
-          </ul>
-          <Empty v-else text="Chưa có ghi chú." words="Lưu ghi chú: " label="Lưu một ý tưởng" />
-        </Section>
-      </div>
-    </template>
-  </div>
+          </li>
+        </ul>
+        <p v-else class="border-t border-line px-5 py-6 text-[14px] text-ink2">No measurements in the last 30 days.</p>
+        <div class="flex items-center gap-2 border-t border-line px-5 py-3">
+          <Timer class="size-4 text-ink3" aria-hidden="true" />
+          <span class="flex-1 text-[13.5px] text-ink2">{{ d.journal_written_today ? 'Journal written today' : 'Journal not written yet today' }}</span>
+          <AskChip :icon="PenLine" :words="d.journal_written_today ? 'Append to today’s journal entry: ' : 'Write today’s journal entry: '" label="Write" />
+        </div>
+      </Panel>
+    </div>
+  </template>
+  <template v-for="plugin in plugins" :key="plugin.id">
+    <PluginFrame v-for="slot in plugin.slots.filter((s) => s.slot === 'dashboard')" :key="slot.id" :plugin="plugin" :slot="slot" class="mt-4" />
+  </template>
 </template>
+
+<style scoped>
+.brief :deep(strong) { font-weight: 600; }
+.brief :deep(ul) { margin-top: 0.6em; }
+.brief :deep(li) { margin: 0.3em 0; }
+</style>

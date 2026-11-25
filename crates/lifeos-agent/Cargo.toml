@@ -5,12 +5,35 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+agent = { path = "../agent" }
+axum = "0.8.9"
+claudecode = { path = "../claudecode" }
+jiff = "0.2.16"
+model = { path = "../model" }
+telemetry = { path = "../telemetry" }
+rusqlite = "0.43.0"
+openrouter = { path = "../openrouter" }
+workflow = { path = "../workflow" }
+jsonschema = { version = "0.51", default-features = false }
+rmcp = { version = "3.9.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
+tower-service = "0.3"
 anyhow = "1.0.105"
+dirs = "7.0.0"
+getrandom = "0.4.3"
+serde = { version = "1.0.229", features = ["derive"] }
+tempfile = "3.27.0"
+url = "2.5.9"
+tokio-util = { version = "0.7", features = ["rt"] }
 chrono = "0.4.45"
-claude-code-agent = "0.8.0"
+chrono-tz = "0.10.4"
+regex = "1.13.0"
 lifeos-core = { version = "0.1.0", path = "../lifeos-core" }
+lifeos-desktop = { version = "0.1.0", path = "../lifeos-desktop" }
+lifeos-google = { version = "0.1.0", path = "../lifeos-google" }
 lifeos-wire = { version = "0.1.0", path = "../lifeos-wire" }
 serde_json = "1.0.154"
-tokio = { version = "1.54.1", features = ["sync"] }
-tokio-stream = "0.1.19"
+tokio = { version = "1.54.1", features = ["io-util", "macros", "process", "rt", "sync", "time"] }
 tracing = "0.1.44"
+
+[dev-dependencies]
+time = "0.3"

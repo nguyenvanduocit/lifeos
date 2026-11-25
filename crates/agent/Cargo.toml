@@ -1,0 +1,42 @@
+[package]
+name = "agent"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# remit's lints, kept with the code taken from it.
+[lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+as_conversions = "deny"
+let_underscore_must_use = "deny"
+mem_forget = "deny"
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+redundant_clone = "deny"
+
+[dependencies]
+claudecode = { path = "../claudecode" }
+claudehooks = { path = "../claudehooks" }
+jiff = "0.2.16"
+model = { path = "../model" }
+regex = "1.12.2"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+thiserror = "2.0.21"
+time = "0.3.55"
+tokio = { version = "1.54.1", features = ["sync", "rt", "macros", "time"] }
+uuid = { version = "1.18.1", features = ["v4"] }

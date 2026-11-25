@@ -4,16 +4,15 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
-use chrono::Local;
-use lifeos_agent::{AgentConfig, BRIEF_PROMPT, Interrupter, LifeAgent};
+use lifeos_agent::{BRIEF_PROMPT, Notice, owner};
 use lifeos_core::tools;
 use lifeos_wire::frame::MAX_FRAME;
-use lifeos_wire::{ASSISTANT, Call, ChatDone, CrewMember, PATH, Reader, Reply, Step, Turn, encode};
-use tokio::sync::mpsc;
+use lifeos_wire::{ASSISTANT, Call, Delivery, PATH, Reader, Reply, encode};
+use tokio::sync::broadcast;
 use web_transport_quinn::http::StatusCode;
 use web_transport_quinn::{RecvStream, SendStream, Server, Session};
 
-use crate::AppState;
+use crate::{AppState, computer};
 
 pub async fn accept(mut server: Server, state: Arc<AppState>) {
     while let Some(request) = server.accept().await {
@@ -44,15 +43,27 @@ async fn serve_session(session: Session, state: Arc<AppState>) {
 }
 
 async fn serve_call(mut send: SendStream, mut recv: RecvStream, state: Arc<AppState>) -> Result<()> {
-    let bytes = recv.read_to_end(MAX_FRAME + 4).await.context("reading the call")?;
+    // The first frame is the call. A page finishes its side after it; a computer keeps writing on it.
     let mut reader = Reader::default();
-    reader.push(&bytes);
-    let call: Call = reader.next_frame()?.context("the stream ended before a whole call")?;
+    let mut buf = vec![0_u8; 64 * 1024];
+    let call: Call = loop {
+        if let Some(call) = reader.next_frame()? {
+            break call;
+        }
+        anyhow::ensure!(reader.pending() <= MAX_FRAME + 4, "the call is too large");
+        match recv.read(&mut buf).await.context("reading the call")? {
+            Some(n) => reader.push(&buf[..n]),
+            None => anyhow::bail!("the stream ended before a whole call"),
+        }
+    };
 
     if call == Call::Watch {
         return watch(send, &state).await;
     }
-    let last = match answer(call, &state, &mut send).await {
+    if let Call::Computer(hello) = call {
+        return computer::serve(hello, send, recv, reader, &state).await;
+    }
+    let last = match answer(call, &state).await {
         Ok(reply) => reply,
         Err(err) => Reply::Failed(format!("{err:#}")),
     };
@@ -65,32 +76,46 @@ async fn write(send: &mut SendStream, reply: &Reply) -> Result<()> {
     send.write_all(&encode(reply)?).await.context("writing a reply")
 }
 
-/// Sends `Changed` now and after every change. Ends when the page goes
-/// away (the write fails) or the server stops.
+/// Sends `Changed` now and after every change of a life's data, and the agents' work as it happens: each event, each
+/// chunk of a growing message, each agent whose standing changed. Ends when the page goes away (the write fails) or the
+/// server stops.
 async fn watch(mut send: SendStream, state: &AppState) -> Result<()> {
     let mut changes = state.changes.subscribe();
+    let mut notices = state.agents.subscribe();
+    let now = *changes.borrow_and_update();
+    if write(&mut send, &Reply::Changed(now)).await.is_err() {
+        return Ok(());
+    }
     loop {
-        let revision = *changes.borrow_and_update();
-        if write(&mut send, &Reply::Changed(revision)).await.is_err() {
-            return Ok(());
-        }
-        if changes.changed().await.is_err() {
+        let reply = tokio::select! {
+            changed = changes.changed() => {
+                if changed.is_err() { return Ok(()); }
+                let now = *changes.borrow_and_update();
+                Reply::Changed(now)
+            }
+            notice = notices.recv() => match notice {
+                Ok(Notice::Event(e)) => Reply::Event(e),
+                Ok(Notice::Delta(d)) => Reply::Delta(d),
+                Ok(Notice::Agent(card)) => match state.agents.view(&card) {
+                    Ok(view) => Reply::Agent(view),
+                    Err(_) => continue,
+                },
+                // Fell behind: the page reads everything again.
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    let now = *changes.borrow();
+                    Reply::Changed(now)
+                }
+                Err(broadcast::error::RecvError::Closed) => return Ok(()),
+            },
+        };
+        if write(&mut send, &reply).await.is_err() {
             return Ok(());
         }
     }
 }
 
-/// An agent the page talks to: its Claude Code session once started, the
-/// crew member it was started as (to restart it when the member changes),
-/// and how to stop its running turn.
-#[derive(Default)]
-pub struct Seat {
-    agent: tokio::sync::Mutex<Option<(LifeAgent, Option<CrewMember>)>>,
-    interrupter: std::sync::Mutex<Option<Interrupter>>,
-}
-
-/// The final reply to a call; progress frames are written as they come.
-async fn answer(call: Call, state: &AppState, send: &mut SendStream) -> Result<Reply> {
+/// The one reply to a call.
+async fn answer(call: Call, state: &AppState) -> Result<Reply> {
     match call {
         Call::Read { tool, input } => {
             // The page only looks: anything that changes a life goes through the agent.
@@ -103,92 +128,54 @@ async fn answer(call: Call, state: &AppState, send: &mut SendStream) -> Result<R
             let value = tools::call(&mut state.life.lock().expect("life lock"), ASSISTANT, &tool, input)?;
             Ok(Reply::Json(value.to_string()))
         }
-        Call::History { agent } => Ok(Reply::History(state.life.lock().expect("life lock").turns(&agent)?)),
-        Call::ResetChat { agent } => {
-            let seat = state.seat(&agent);
-            if let Some((running, _)) = seat.agent.lock().await.take() {
-                running.close().await;
-            }
-            state.life.lock().expect("life lock").reset_conversation(&agent)?;
-            state.bump();
+        Call::Agent { card } => Ok(Reply::Agent(state.agents.view(&card)?)),
+        Call::Events { card, before } => Ok(Reply::Events(state.agents.events(&card, before)?)),
+        Call::Say { card, text, images, delivery } => {
+            state.agents.say_images(&card, &text, &images, owner(), delivery).await?;
+            state.agents.set_draft(&card, "", &[])?;
             Ok(Reply::Done)
         }
-        Call::Stop { agent } => {
-            let interrupter = state.seat(&agent).interrupter.lock().expect("interrupter lock").clone();
-            if let Some(i) = interrupter {
-                i.interrupt().await?;
-            }
+        Call::Brief => {
+            state.agents.say(ASSISTANT, BRIEF_PROMPT, owner(), Delivery::Queue).await?;
             Ok(Reply::Done)
         }
-        Call::Chat { agent, message } => Ok(Reply::ChatDone(chat(state, &agent, &message, Some(send)).await?)),
-        Call::Brief => Ok(Reply::ChatDone(chat(state, ASSISTANT, BRIEF_PROMPT, Some(send)).await?)),
-        Call::Watch => unreachable!("watch streams are served by `watch`"),
-    }
-}
-
-/// One message to an agent, streaming its steps to `send` when a page is
-/// waiting. The turn is kept either way.
-pub(crate) async fn chat(state: &AppState, agent: &str, message: &str, mut send: Option<&mut SendStream>) -> Result<ChatDone> {
-    let (member, resume) = {
-        let life = state.life.lock().expect("life lock");
-        let member = if agent == ASSISTANT { None } else { Some(life.member(agent)?) };
-        if member.as_ref().is_some_and(|m| m.status != "active") {
-            anyhow::bail!("{agent} is retired; ask the Assistant to bring it back");
+        Call::Interrupt { card } => {
+            state.agents.interrupt(&card).await?;
+            Ok(Reply::Done)
         }
-        (member, life.session_of(agent)?)
-    };
-    let seat = state.seat(agent);
-    let mut slot = seat.agent.lock().await;
-    // A member whose role, instructions or tools changed starts again, in
-    // the same conversation.
-    let stale = slot.as_ref().is_some_and(|(_, was)| was.as_ref().map(|m| (&m.instructions, &m.role, &m.tools, &m.model, &m.effort))
-        != member.as_ref().map(|m| (&m.instructions, &m.role, &m.tools, &m.model, &m.effort)));
-    if stale && let Some((old, _)) = slot.take() {
-        old.close().await;
-    }
-    if slot.is_none() {
-        let config = AgentConfig { member: member.clone(), resume, ..state.agent_config.clone() };
-        let spawned = LifeAgent::spawn(state.life.clone(), config).await?;
-        *slot = Some((spawned, member));
-    }
-    let (running, _) = slot.as_ref().expect("agent just started");
-    *seat.interrupter.lock().expect("interrupter lock") = Some(running.interrupter());
-
-    let at = Local::now().format("%Y-%m-%d %H:%M").to_string();
-    let (tx, mut rx) = mpsc::unbounded_channel::<Step>();
-    let ask = running.ask(message, move |step| {
-        let _ = tx.send(step);
-    });
-    tokio::pin!(ask);
-    let mut forward = async |step: Step| {
-        if let Some(send) = send.as_deref_mut() {
-            // A page that went away does not stop the agent.
-            let _ = write(send, &Reply::Progress(step)).await;
+        Call::Restart { card } => {
+            state.agents.restart(&card).await?;
+            Ok(Reply::Done)
         }
-    };
-    let done = loop {
-        tokio::select! {
-            biased;
-            Some(step) = rx.recv() => forward(step).await,
-            done = &mut ask => break done,
+        Call::Draft { card, text, images } => {
+            state.agents.set_draft(&card, &text, &images)?;
+            Ok(Reply::Done)
         }
-    };
-    // What the agent reported just before it finished.
-    while let Ok(step) = rx.try_recv() {
-        forward(step).await;
-    }
-    *seat.interrupter.lock().expect("interrupter lock") = None;
-    let session = running.session_id();
-    // The agent may have changed files with its own Edit and Write tools.
-    state.bump();
-    let done = done?;
-    {
-        let life = state.life.lock().expect("life lock");
-        if let Some(id) = session {
-            life.set_session_of(agent, &id)?;
+        Call::ImagePut { id, image } => {
+            state.agents.put_image(&id, &image)?;
+            Ok(Reply::Done)
         }
-        life.save_turn(agent, &Turn { ask: message.to_string(), at, reply: done.clone(), source: None })?;
+        Call::ImageGet { id } => Ok(Reply::Image(state.agents.image(&id)?)),
+        Call::Context { card } => Ok(Reply::Context(state.agents.context(&card).await?)),
+        Call::Telemetry { card } => Ok(Reply::Telemetry(state.agents.telemetry(&card).await?)),
+        // The owner's own acts on the agents, which a page may write (docs/adr/0001).
+        Call::BlockPick { event, part, picked } => {
+            state.agents.block_pick(event, &part, picked).await?;
+            Ok(Reply::Done)
+        }
+        Call::Overturn { question, word } => {
+            state.agents.overturn(question, &word).await?;
+            Ok(Reply::Done)
+        }
+        Call::Teach { event, mark, words } => {
+            state.agents.teach(event, mark, &words)?;
+            Ok(Reply::Done)
+        }
+        Call::Stop { card, reason } => {
+            state.agents.stop(&card, &reason).await?;
+            Ok(Reply::Done)
+        }
+        Call::Watch => anyhow::bail!("a watch is served on its own stream"),
+        Call::Computer(_) => anyhow::bail!("a computer is served on its own stream"),
     }
-    state.bump();
-    Ok(done)
 }

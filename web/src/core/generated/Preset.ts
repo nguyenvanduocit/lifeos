@@ -9,7 +9,7 @@ export type Preset = { id: string, name: string, description: string,
  */
 setup: string, 
 /**
- * Secrets it needs set with `lifeos secret set`.
+ * Vault keys it needs (`${NAME}` in its configuration).
  */
 secrets: Array<string>, 
 /**

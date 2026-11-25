@@ -3,7 +3,10 @@
 
 use anyhow::{Context, Result, bail, ensure};
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
-use croner::{Cron, parser::{CronParser, Seconds}};
+use croner::{
+    Cron,
+    parser::{CronParser, Seconds},
+};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -23,6 +26,9 @@ input! {
         pub instructions: String,
         /// Crew member id, or assistant by default.
         pub agent: Option<String>,
+        /// A script in workflows/ (its name, without .js) to run in place of asking the agent: it reads
+        /// `args.instructions`, `args.trigger` and `args.payload`.
+        pub workflow: Option<String>,
         /// Five cron fields in the server's local time.
         pub cron: Option<String>,
         /// YYYY-MM-DD HH:MM in the server's local time.
@@ -41,6 +47,8 @@ input! {
         pub title: Option<String>,
         pub instructions: Option<String>,
         pub agent: Option<String>,
+        /// A script in workflows/ to run in place of asking the agent. Set to an empty string to clear.
+        pub workflow: Option<String>,
         /// Set to an empty string to clear.
         pub cron: Option<String>,
         /// Set to an empty string to clear.
@@ -66,13 +74,22 @@ pub struct PendingRun {
 }
 
 fn cron(expression: &str) -> Result<Cron> {
-    ensure!(expression.split_whitespace().count() == 5, "cron must have five fields");
-    Ok(CronParser::builder().seconds(Seconds::Disallowed).build().parse(expression)?)
+    ensure!(
+        expression.split_whitespace().count() == 5,
+        "cron must have five fields"
+    );
+    Ok(CronParser::builder()
+        .seconds(Seconds::Disallowed)
+        .build()
+        .parse(expression)?)
 }
 
 fn once(at: &str) -> Result<DateTime<Local>> {
     let time = NaiveDateTime::parse_from_str(at, MINUTE).context("expected YYYY-MM-DD HH:MM")?;
-    Local.from_local_datetime(&time).earliest().context("this local time does not exist")
+    Local
+        .from_local_datetime(&time)
+        .earliest()
+        .context("this local time does not exist")
 }
 
 fn stamp(now: DateTime<Local>) -> String {
@@ -93,31 +110,59 @@ fn agent(doc: &Doc) -> &str {
 
 fn run_row(r: &Row<'_>) -> rusqlite::Result<Run> {
     Ok(Run {
-        id: r.get(0)?, routine: r.get(1)?, title: r.get(2)?, agent: r.get(3)?,
-        trigger: r.get(4)?, detail: r.get(5)?, queued: r.get(6)?, started: r.get(7)?,
-        finished: r.get(8)?, ms: r.get::<_, Option<i64>>(9)?.map(|n| n as u64), error: r.get(10)?, reply: r.get(11)?,
+        id: r.get(0)?,
+        routine: r.get(1)?,
+        title: r.get(2)?,
+        agent: r.get(3)?,
+        trigger: r.get(4)?,
+        detail: r.get(5)?,
+        queued: r.get(6)?,
+        started: r.get(7)?,
+        finished: r.get(8)?,
+        ms: r.get::<_, Option<i64>>(9)?.map(|n| n as u64),
+        error: r.get(10)?,
+        reply: r.get(11)?,
     })
 }
 
 fn enqueue(
-    conn: &Connection, doc: &Doc, trigger: &str, detail: Option<&str>, payload: Option<&str>, now: DateTime<Local>,
+    conn: &Connection,
+    doc: &Doc,
+    trigger: &str,
+    detail: Option<&str>,
+    payload: Option<&str>,
+    now: DateTime<Local>,
 ) -> Result<i64> {
     Ok(conn.query_row(
         "INSERT INTO runs(routine,title,agent,trigger,detail,payload,queued,instructions)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8) RETURNING id",
-        params![doc.id, doc.meta.title, agent(doc), trigger, detail, payload, stamp(now), doc.body],
+        params![
+            doc.id,
+            doc.meta.title,
+            agent(doc),
+            trigger,
+            detail,
+            payload,
+            stamp(now),
+            doc.body
+        ],
         |row| row.get(0),
     )?)
 }
 
-fn schedule(
-    conn: &Connection, doc: &Doc, now: DateTime<Local>,
-) -> Result<(Option<i64>, bool)> {
-    let previous: Option<(String, Option<i64>)> = conn.query_row(
-        "SELECT expression, next FROM routine_schedules WHERE routine=?1",
-        [&doc.id], |r| Ok((r.get(0)?, r.get(1)?)),
-    ).optional()?;
-    let from = if previous.is_none() { doc.meta.created.unwrap_or(now) } else { now };
+fn schedule(conn: &Connection, doc: &Doc, now: DateTime<Local>) -> Result<(Option<i64>, bool)> {
+    let previous: Option<(String, Option<i64>)> = conn
+        .query_row(
+            "SELECT expression, next FROM routine_schedules WHERE routine=?1",
+            [&doc.id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let from = if previous.is_none() {
+        doc.meta.created.unwrap_or(now)
+    } else {
+        now
+    };
     let (expression, repeated) = match (&doc.meta.cron, &doc.meta.at) {
         (Some(expression), None) => (format!("cron:{expression}"), true),
         (None, Some(at)) => (format!("at:{at}"), false),
@@ -126,7 +171,11 @@ fn schedule(
     };
     let next = match previous {
         Some((was, next)) if was == expression => next,
-        _ if repeated => Some(cron(&expression[5..])?.find_next_occurrence(&from, false)?.timestamp()),
+        _ if repeated => Some(
+            cron(&expression[5..])?
+                .find_next_occurrence(&from, false)?
+                .timestamp(),
+        ),
         _ => Some(once(&expression[3..])?.timestamp()),
     };
     Ok((next, !repeated && next.is_none()))
@@ -134,19 +183,34 @@ fn schedule(
 
 impl Life {
     fn validate_routine(&self, meta: &Frontmatter, instructions: &str) -> Result<()> {
-        ensure!(!meta.title.trim().is_empty() && !instructions.trim().is_empty(), "title and instructions are required");
-        ensure!(meta.cron.is_none() || meta.at.is_none(), "choose cron or at");
+        ensure!(
+            !meta.title.trim().is_empty() && !instructions.trim().is_empty(),
+            "title and instructions are required"
+        );
+        ensure!(
+            meta.cron.is_none() || meta.at.is_none(),
+            "choose cron or at"
+        );
         if let Some(cron_expression) = &meta.cron {
             cron(cron_expression)?.find_next_occurrence(&Local::now(), false)?;
         }
         if let Some(at) = &meta.at {
             once(at)?;
         }
+        if let Some(name) = &meta.workflow {
+            self.workflow_script(name)?;
+        }
         if let Some(agent) = meta.agent.as_deref().filter(|a| *a != ASSISTANT) {
-            ensure!(self.member(agent)?.status == "active", "crew member '{agent}' is retired");
+            ensure!(
+                self.member(agent)?.status == "active",
+                "crew member '{agent}' is retired"
+            );
         }
         for tool in &meta.on {
-            ensure!(crate::tools::event_tool(tool), "'{tool}' does not emit events");
+            ensure!(
+                crate::tools::event_tool(tool),
+                "'{tool}' does not emit events"
+            );
         }
         Ok(())
     }
@@ -155,6 +219,7 @@ impl Life {
         let meta = Frontmatter {
             title: input.title,
             agent: input.agent,
+            workflow: input.workflow.filter(|w| !w.trim().is_empty()),
             cron: input.cron,
             at: input.at,
             on: input.on,
@@ -171,36 +236,63 @@ impl Life {
     pub fn update_routine(&self, input: UpdateRoutine) -> Result<Routine> {
         let mut doc = self.find(Kind::Routine, &input.id)?;
         let old_schedule = (doc.meta.cron.clone(), doc.meta.at.clone());
-        if let Some(title) = input.title { doc.meta.title = title; }
-        if let Some(agent) = input.agent { doc.meta.agent = Some(agent); }
-        if let Some(instructions) = input.instructions { doc.body = instructions; }
-        if let Some(cron) = input.cron { doc.meta.cron = Some(cron).filter(|s| !s.trim().is_empty()); }
-        if let Some(at) = input.at { doc.meta.at = Some(at).filter(|s| !s.trim().is_empty()); }
-        if let Some(on) = input.on { doc.meta.on = on; }
-        if let Some(hook) = input.hook { doc.meta.hook = hook; }
+        let was_paused = !is_active(&doc);
+        if let Some(title) = input.title {
+            doc.meta.title = title;
+        }
+        if let Some(agent) = input.agent {
+            doc.meta.agent = Some(agent);
+        }
+        if let Some(workflow) = input.workflow {
+            doc.meta.workflow = Some(workflow).filter(|w| !w.trim().is_empty());
+        }
+        if let Some(instructions) = input.instructions {
+            doc.body = instructions;
+        }
+        if let Some(cron) = input.cron {
+            doc.meta.cron = Some(cron).filter(|s| !s.trim().is_empty());
+        }
+        if let Some(at) = input.at {
+            doc.meta.at = Some(at).filter(|s| !s.trim().is_empty());
+        }
+        if let Some(on) = input.on {
+            doc.meta.on = on;
+        }
+        if let Some(hook) = input.hook {
+            doc.meta.hook = hook;
+        }
         if let Some(paused) = input.paused {
             doc.meta.status = Some(if paused { "paused" } else { "active" }.into());
         }
         self.validate_routine(&doc.meta, &doc.body)?;
-        if old_schedule != (doc.meta.cron.clone(), doc.meta.at.clone()) {
-            // Keep the definition's creation time for event filtering, but start a new
-            // cron schedule from the point where the user changed it.
-            let mut scheduled = doc.clone();
+        let changed_schedule = old_schedule != (doc.meta.cron.clone(), doc.meta.at.clone());
+        let resumed_cron = was_paused && is_active(&doc) && doc.meta.cron.is_some();
+        let tx = self.conn.unchecked_transaction()?;
+        if changed_schedule || resumed_cron {
             let now = Local::now();
-            scheduled.meta.created = Some(now);
-            let (next, _) = schedule(&self.conn, &scheduled, now)?;
-            persist_schedule(&self.conn, &doc, next)?;
+            let next = match (&doc.meta.cron, &doc.meta.at) {
+                (Some(expression), _) => Some(
+                    cron(expression)?
+                        .find_next_occurrence(&now, false)?
+                        .timestamp(),
+                ),
+                (_, Some(at)) => Some(once(at)?.timestamp()),
+                _ => None,
+            };
+            persist_schedule(&tx, &doc, next)?;
         }
         self.save(&doc)?;
+        tx.commit()?;
         self.routine_view(&doc)
     }
 
     pub fn remove_routine(&self, id: &str) -> Result<()> {
         let doc = self.find(Kind::Routine, id)?;
+        let id = &doc.id;
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("DELETE FROM routine_hooks WHERE routine=?1", [id])?;
         tx.execute("DELETE FROM routine_schedules WHERE routine=?1", [id])?;
-        tx.execute("UPDATE runs SET finished=?2,error='Routine deleted' WHERE routine=?1 AND started IS NULL AND finished IS NULL", params![id, stamp(Local::now())])?;
+        tx.execute("UPDATE runs SET finished=?2,error='Routine deleted',payload=NULL WHERE routine=?1 AND started IS NULL AND finished IS NULL", params![id, stamp(Local::now())])?;
         std::fs::remove_file(self.vault.abs(&doc.rel_path))?;
         self.unindex(&doc.rel_path)?;
         tx.commit()?;
@@ -208,49 +300,87 @@ impl Life {
     }
 
     pub fn routines(&self) -> Result<Vec<Routine>> {
-        self.routine_docs()?.iter().map(|doc| self.routine_view(doc)).collect()
+        self.routine_docs()?
+            .iter()
+            .map(|doc| self.routine_view(doc))
+            .collect()
     }
 
     fn routine_docs(&self) -> Result<Vec<Doc>> {
-        self.docs_where(Kind::Routine, "1", "title, path")?.into_iter()
-            .map(|d| self.vault.read(Kind::Routine, &d.path)).collect()
+        let docs = self.docs_where(Kind::Routine, "1", "title, path")?;
+        Ok(docs
+            .into_iter()
+            .filter_map(|d| self.vault.read(Kind::Routine, &d.path).ok())
+            .collect())
     }
 
     fn routine_view(&self, doc: &Doc) -> Result<Routine> {
         let (next, done) = schedule(&self.conn, doc, Local::now()).unwrap_or_default();
-        let count = self.conn.query_row("SELECT count(*) FROM runs WHERE routine=?1", [&doc.id], |r| r.get(0))?;
+        let count = self.conn.query_row(
+            "SELECT count(*) FROM runs WHERE routine=?1",
+            [&doc.id],
+            |r| r.get(0),
+        )?;
         let last = self.runs(Some(&doc.id), 1)?.pop();
-        let status = if !is_active(doc) { "paused" } else if done { "done" } else { "active" };
+        let status = if !is_active(doc) {
+            "paused"
+        } else if done && !doc.meta.hook && doc.meta.on.is_empty() {
+            "done"
+        } else {
+            "active"
+        };
         Ok(Routine {
-            id: doc.id.clone(), title: doc.meta.title.clone(), agent: agent(doc).into(),
-            instructions: doc.body.clone(), cron: doc.meta.cron.clone(), at: doc.meta.at.clone(),
-            on: doc.meta.on.clone(), hook: doc.meta.hook,
+            id: doc.id.clone(),
+            title: doc.meta.title.clone(),
+            agent: agent(doc).into(),
+            workflow: doc.meta.workflow.clone(),
+            instructions: doc.body.clone(),
+            cron: doc.meta.cron.clone(),
+            at: doc.meta.at.clone(),
+            on: doc.meta.on.clone(),
+            hook: doc.meta.hook,
             hook_ready: doc.meta.hook && self.hook_digest(&doc.id)?.is_some(),
-            status: status.into(), last, runs: count,
-            next: next.and_then(|at| Local.timestamp_opt(at, 0).single())
-                .filter(|_| is_active(doc)).map(|at| at.format(MINUTE).to_string()),
+            status: status.into(),
+            last,
+            runs: count,
+            next: next
+                .and_then(|at| Local.timestamp_opt(at, 0).single())
+                .filter(|_| is_active(doc))
+                .map(|at| at.format(MINUTE).to_string()),
         })
     }
 
     pub fn runs(&self, routine: Option<&str>, limit: u32) -> Result<Vec<Run>> {
+        let resolved = routine.and_then(|id| self.find(Kind::Routine, id).ok());
+        let routine = resolved.as_ref().map(|doc| doc.id.as_str()).or(routine);
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {RUN_COLUMNS} FROM runs WHERE ?1 IS NULL OR routine=?1 ORDER BY id DESC LIMIT ?2"
         ))?;
-        Ok(stmt.query_map(params![routine, limit.clamp(1, 200)], run_row)?.collect::<rusqlite::Result<_>>()?)
+        Ok(stmt
+            .query_map(params![routine, limit.clamp(1, 200)], run_row)?
+            .collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn queue_manual(&self, id: &str) -> Result<Run> {
         let doc = self.find(Kind::Routine, id)?;
         ensure!(is_active(&doc), "routine is paused");
         let id = enqueue(&self.conn, &doc, "manual", None, None, Local::now())?;
-        Ok(self.conn.query_row(&format!("SELECT {RUN_COLUMNS} FROM runs WHERE id=?1"), [id], run_row)?)
+        Ok(self.conn.query_row(
+            &format!("SELECT {RUN_COLUMNS} FROM runs WHERE id=?1"),
+            [id],
+            run_row,
+        )?)
     }
 
     /// Generate or rotate a key locally. Only its digest is stored.
     pub fn rotate_hook_key(&self, id: &str) -> Result<String> {
-        ensure!(self.find(Kind::Routine, id)?.meta.hook, "routine has no webhook");
+        ensure!(
+            self.find(Kind::Routine, id)?.meta.hook,
+            "routine has no webhook"
+        );
         let mut bytes = [0u8; 32];
-        getrandom::fill(&mut bytes).map_err(|err| anyhow::anyhow!("cannot generate webhook key: {err}"))?;
+        getrandom::fill(&mut bytes)
+            .map_err(|err| anyhow::anyhow!("cannot generate webhook key: {err}"))?;
         let key = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
         let digest = Sha256::digest(key.as_bytes());
         self.conn.execute(
@@ -261,15 +391,26 @@ impl Life {
     }
 
     fn hook_digest(&self, id: &str) -> Result<Option<Vec<u8>>> {
-        Ok(self.conn.query_row("SELECT digest FROM routine_hooks WHERE routine=?1", [id], |r| r.get(0)).optional()?)
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT digest FROM routine_hooks WHERE routine=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?)
     }
 
     pub fn queue_hook(&self, id: &str, token: &str, payload: &str) -> Result<Option<i64>> {
-        let Some(expected) = self.hook_digest(id)? else { return Ok(None) };
+        let Some(expected) = self.hook_digest(id)? else {
+            return Ok(None);
+        };
         if !bool::from(expected.ct_eq(Sha256::digest(token.as_bytes()).as_slice())) {
             return Ok(None);
         }
-        let Ok(doc) = self.find(Kind::Routine, id) else { return Ok(None) };
+        let Ok(doc) = self.find(Kind::Routine, id) else {
+            return Ok(None);
+        };
         if !doc.meta.hook || !is_active(&doc) {
             return Ok(None);
         }
@@ -277,10 +418,18 @@ impl Life {
         Ok(Some(id))
     }
 
+    pub(crate) fn begin_event_write(&self) -> Result<rusqlite::Transaction<'_>> {
+        Ok(rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?)
+    }
+
     pub(crate) fn record_event(&self, caller: &str, tool: &str, output: &Value) -> Result<()> {
         // Input is omitted to avoid persisting extra copies of user-supplied arguments.
         self.conn.execute(
-            "INSERT INTO events(at,caller,tool,input,output) VALUES (?1,?2,?3,'{}',?4)",
+            "INSERT INTO tool_log(at,caller,tool,input,output) SELECT ?1,?2,?3,'{}',?4
+             WHERE EXISTS (SELECT 1 FROM docs WHERE kind='routine' AND COALESCE(status,'active')='active')",
             params![stamp(Local::now()), caller, tool, preview(&output.to_string(), 4000)],
         )?;
         Ok(())
@@ -290,8 +439,18 @@ impl Life {
     pub fn tick_routines(&mut self, now: DateTime<Local>) -> Result<bool> {
         self.sync_index()?;
         let docs = self.routine_docs()?;
-        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let mut changed = false;
+        tx.execute_batch(
+            "DELETE FROM routine_schedules WHERE NOT EXISTS (
+                SELECT 1 FROM docs WHERE kind='routine' AND id=routine_schedules.routine
+             );
+             DELETE FROM routine_hooks WHERE NOT EXISTS (
+                SELECT 1 FROM docs WHERE kind='routine' AND id=routine_hooks.routine
+             );",
+        )?;
         for doc in &docs {
             let (next, _) = match schedule(&tx, doc, now) {
                 Ok(schedule) => schedule,
@@ -300,31 +459,65 @@ impl Life {
                     continue;
                 }
             };
-            if doc.meta.cron.is_none() && doc.meta.at.is_none() { continue; }
+            if doc.meta.cron.is_none() && doc.meta.at.is_none() {
+                continue;
+            }
             let mut next_run = next;
-            if is_active(doc) && let Some(at) = next.filter(|at| *at <= now.timestamp()) {
-                let detail = Local.timestamp_opt(at, 0).single().map(|t| t.format(MINUTE).to_string());
-                next_run = doc.meta.cron.as_deref().map(|expression| {
-                    cron(expression).and_then(|cron| Ok(cron.find_next_occurrence(&now, false)?.timestamp()))
-                }).transpose()?;
+            if is_active(doc)
+                && let Some(at) = next.filter(|at| *at <= now.timestamp())
+            {
+                let detail = Local
+                    .timestamp_opt(at, 0)
+                    .single()
+                    .map(|t| t.format(MINUTE).to_string());
+                next_run = doc
+                    .meta
+                    .cron
+                    .as_deref()
+                    .map(|expression| {
+                        cron(expression).and_then(|cron| {
+                            Ok(cron.find_next_occurrence(&now, false)?.timestamp())
+                        })
+                    })
+                    .transpose()?;
                 enqueue(&tx, doc, "schedule", detail.as_deref(), None, now)?;
                 changed = true;
             }
             persist_schedule(&tx, doc, next_run)?;
         }
         let events = {
-            let mut stmt = tx.prepare("SELECT id,at,caller,tool,output FROM events WHERE routine IS NULL ORDER BY id LIMIT 250")?;
-            stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?)))?
-                .collect::<rusqlite::Result<Vec<_>>>()?
+            let mut stmt = tx.prepare("SELECT id,at,caller,tool,output FROM tool_log WHERE routine IS NULL ORDER BY id LIMIT 250")?;
+            stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
         };
         for (id, at, caller, tool, output) in events {
-            for doc in docs.iter().filter(|d| is_active(d) && d.meta.on.contains(&tool)) {
-                if doc.meta.created.is_some_and(|created| stamp(created) > at) { continue; }
+            for doc in docs
+                .iter()
+                .filter(|d| is_active(d) && d.meta.on.contains(&tool))
+            {
+                if doc.meta.created.is_some_and(|created| stamp(created) > at) {
+                    continue;
+                }
                 let payload = serde_json::json!({ "at": at, "caller": caller, "tool": tool, "result": output });
-                enqueue(&tx, doc, "event", Some(&tool), Some(&payload.to_string()), now)?;
+                enqueue(
+                    &tx,
+                    doc,
+                    "event",
+                    Some(&tool),
+                    Some(&payload.to_string()),
+                    now,
+                )?;
                 changed = true;
             }
-            tx.execute("DELETE FROM events WHERE id=?1", [id])?;
+            tx.execute("DELETE FROM tool_log WHERE id=?1", [id])?;
         }
         tx.commit()?;
         Ok(changed)
@@ -334,42 +527,73 @@ impl Life {
     /// Interrupted runs stay visible and are never replayed automatically.
     pub fn recover_routines(&self) -> Result<()> {
         self.conn.execute(
-            "UPDATE runs SET finished=?1,error='Worker stopped before the run completed'
+            "UPDATE runs SET finished=?1,error='Worker stopped before the run completed',payload=NULL
              WHERE started IS NOT NULL AND finished IS NULL", [stamp(Local::now())],
         )?;
         Ok(())
     }
 
     pub fn claim_run(&mut self) -> Result<Option<PendingRun>> {
-        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let run = tx.query_row(&format!(
-            "SELECT {RUN_COLUMNS},instructions,payload FROM runs AS r
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let run = tx
+            .query_row(
+                &format!(
+                    "SELECT {RUN_COLUMNS},instructions,payload FROM runs AS r
              WHERE started IS NULL AND finished IS NULL AND NOT EXISTS (
                SELECT 1 FROM runs AS busy WHERE busy.started IS NOT NULL AND busy.finished IS NULL
                AND (busy.routine=r.routine OR busy.agent=r.agent))
              ORDER BY id LIMIT 1"
-        ), [], |row| Ok(PendingRun { run: run_row(row)?, instructions: row.get(12)?, payload: row.get(13)? }))
+                ),
+                [],
+                |row| {
+                    Ok(PendingRun {
+                        run: run_row(row)?,
+                        instructions: row.get(12)?,
+                        payload: row.get(13)?,
+                    })
+                },
+            )
             .optional()?;
-        let run = run.map(|mut work| {
-            let started = stamp(Local::now());
-            tx.execute("UPDATE runs SET started=?2 WHERE id=?1", params![work.run.id, started])?;
-            work.run.started = Some(started);
-            Ok::<_, rusqlite::Error>(work)
-        }).transpose()?;
+        let run = run
+            .map(|mut work| {
+                let started = stamp(Local::now());
+                tx.execute(
+                    "UPDATE runs SET started=?2 WHERE id=?1",
+                    params![work.run.id, started],
+                )?;
+                work.run.started = Some(started);
+                Ok::<_, rusqlite::Error>(work)
+            })
+            .transpose()?;
         tx.commit()?;
         Ok(run)
     }
 
+    /// Ends routine run `id`: how long its turn took, its error, and the agent's final words. The turn itself is in
+    /// the agent's stream.
     pub fn finish_run(&self, id: i64, ms: u64, error: Option<&str>, reply: Option<&str>) -> Result<()> {
-        self.conn.execute(
-            "UPDATE runs SET finished=?2,ms=?3,error=?4,reply=?5,payload=NULL WHERE id=?1 AND finished IS NULL",
-            params![id, stamp(Local::now()), i64::try_from(ms)?, error.map(|s| preview(s, 4000)), reply.map(|s| preview(s, 2000))],
+        let changed = self.conn.execute(
+            "UPDATE runs SET finished=?2,ms=?3,error=?4,reply=?5,payload=NULL
+             WHERE id=?1 AND started IS NOT NULL AND finished IS NULL",
+            params![
+                id,
+                stamp(Local::now()),
+                i64::try_from(ms)?,
+                error.map(|s| preview(s, 4000)),
+                reply.map(|s| preview(s, 2000))
+            ],
         )?;
+        ensure!(changed == 1, "routine run {id} is no longer active");
         Ok(())
     }
 
     pub fn check_queued_routine(&self, id: &str) -> Result<()> {
-        ensure!(is_active(&self.find(Kind::Routine, id)?), "routine is paused");
+        ensure!(
+            is_active(&self.find(Kind::Routine, id)?),
+            "routine is paused"
+        );
         Ok(())
     }
 }
@@ -390,4 +614,135 @@ fn persist_schedule(conn: &Connection, doc: &Doc, next: Option<i64>) -> Result<(
         params![doc.id, expression, next],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Duration;
+    use serde_json::json;
+
+    use super::*;
+    use crate::tools;
+
+    #[test]
+    fn schedules_queue_once_and_survive_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut life = Life::open(dir.path()).unwrap();
+        let now = Local::now();
+        let add = |title: &str| AddRoutine {
+            title: title.into(),
+            instructions: "Viết tổng kết".into(),
+            ..Default::default()
+        };
+        assert!(
+            life.add_routine(AddRoutine {
+                cron: Some("0 * * * * *".into()),
+                ..add("Invalid")
+            })
+            .is_err()
+        );
+        let recurring = life
+            .add_routine(AddRoutine {
+                cron: Some("* * * * *".into()),
+                ..add("Hàng phút")
+            })
+            .unwrap();
+        let once = life
+            .add_routine(AddRoutine {
+                at: Some((now + Duration::minutes(1)).format(MINUTE).to_string()),
+                ..add("Một lần")
+            })
+            .unwrap();
+        let later = now + Duration::minutes(10);
+        life.tick_routines(later).unwrap();
+        assert_eq!(life.runs(None, 30).unwrap().len(), 2);
+        let started = life.claim_run().unwrap().unwrap();
+        assert!(life.claim_run().unwrap().is_none(), "same agent is busy");
+        drop(life);
+
+        let mut life = Life::open(dir.path()).unwrap();
+        life.recover_routines().unwrap();
+        life.tick_routines(later).unwrap();
+        assert_eq!(life.runs(Some(&recurring.id), 30).unwrap().len(), 1);
+        assert_eq!(life.runs(Some(&once.id), 30).unwrap().len(), 1);
+        assert!(
+            life.runs(Some(&started.run.routine), 1).unwrap()[0]
+                .error
+                .is_some()
+        );
+        let work = life.claim_run().unwrap().unwrap();
+        life.finish_run(work.run.id, 12, None, Some("Đã xong")).unwrap();
+        let run = &life.runs(Some(&work.run.routine), 1).unwrap()[0];
+        assert_eq!((run.ms, run.reply.as_deref()), (Some(12), Some("Đã xong")));
+    }
+
+    #[test]
+    fn only_user_writes_trigger_events_and_hook_keys_rotate() {
+        let (_dir, mut life) = crate::life::test_support::life();
+        let routine = life
+            .add_routine(AddRoutine {
+                title: "Tóm tắt".into(),
+                instructions: "Đọc payload".into(),
+                hook: true,
+                on: vec!["add_task".into()],
+                ..Default::default()
+            })
+            .unwrap();
+        let first = life.rotate_hook_key(&routine.id).unwrap();
+        let second = life.rotate_hook_key(&routine.id).unwrap();
+        assert!(
+            life.queue_hook(&routine.id, &first, "test")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            life.queue_hook(&routine.id, &second, "test")
+                .unwrap()
+                .is_some()
+        );
+        tools::call(
+            &mut life,
+            ASSISTANT,
+            "add_task",
+            json!({"title":"Người dùng"}),
+        )
+        .unwrap();
+        tools::call_with_origin(
+            &mut life,
+            ASSISTANT,
+            "add_task",
+            json!({"title":"Routine"}),
+            true,
+        )
+        .unwrap();
+        assert!(
+            tools::call_with_origin(
+                &mut life,
+                ASSISTANT,
+                "run_routine",
+                json!({"id": routine.id}),
+                true
+            )
+            .is_err()
+        );
+        assert!(
+            tools::call(
+                &mut life,
+                "crew",
+                "update_routine",
+                json!({"id": routine.id, "paused": true})
+            )
+            .is_err()
+        );
+        life.tick_routines(Local::now()).unwrap();
+        life.tick_routines(Local::now()).unwrap();
+        life.queue_manual(&routine.id).unwrap();
+        let trigger: Vec<_> = life
+            .runs(Some(&routine.id), 30)
+            .unwrap()
+            .into_iter()
+            .map(|run| run.trigger)
+            .collect();
+        assert_eq!(trigger, ["manual", "event", "hook"]);
+    }
 }

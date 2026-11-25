@@ -130,6 +130,8 @@ pub struct GoalView {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS), ts(export))]
 pub struct HabitStatus {
+    #[serde(default)]
+    pub id: Option<String>,
     pub habit: String,
     /// What `value` counts (minutes, pages, km…); none for done/not done.
     pub unit: Option<String>,
@@ -381,6 +383,58 @@ pub struct Memory {
     pub why_ended: Option<String>,
     /// How many times it was brought back into a conversation.
     pub recalled: u32,
+    /// `auto` (an agent wrote it) or `confirmed` (the owner stood behind it).
+    pub trust: String,
+    /// What agents said of it when it was given: it helped, or it misled.
+    pub helped: u32,
+    pub misled: u32,
+    /// When a conversation was last given it, `YYYY-MM-DD HH:MM`.
+    pub last_recalled: Option<String>,
+    /// Its links to other memories: what it supersedes, rests on, relates to or contradicts.
+    pub links: Vec<MemoryLink>,
+    /// The teaching the librarian learned it from; none for one written before the librarian.
+    pub source: Option<i64>,
+    /// What the teaching said that it rests on, quoted.
+    pub evidence: String,
+}
+
+/// Something the owner taught an agent, which the librarian reads and writes memory from (remit's ADR-0117).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct Teaching {
+    pub id: i64,
+    /// Whose memory it teaches: `assistant` or a crew member's id.
+    pub holder: String,
+    /// The card whose conversation it is, when it reads one.
+    pub card: String,
+    /// `teaching`: what the owner said to an agent in a turn; `review`: memories lifeos found to check again.
+    pub role: String,
+    /// What it came from, in words.
+    pub source: String,
+    /// Who taught it: `owner`, or empty for lifeos.
+    pub teacher: String,
+    /// The range of the card's stream it reads; both 0 for a text.
+    pub from_event: i64,
+    pub to_event: i64,
+    /// What it holds when it reads no stream.
+    pub text: String,
+    /// `open` until the librarian settles it.
+    pub status: String,
+    /// The librarian's note on settling: which memories, or why none.
+    pub note: String,
+    /// The memories it wrote.
+    pub written: Vec<i64>,
+    pub created: String,
+    pub settled: String,
+}
+
+/// One memory's link to another.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct MemoryLink {
+    pub to: i64,
+    /// supersedes | because | related | contradicts
+    pub kind: String,
 }
 
 // ------------------------------------------------------------------- routines
@@ -394,6 +448,8 @@ pub struct Routine {
     pub title: String,
     /// `assistant` or a crew member id: who does it, in its own conversation.
     pub agent: String,
+    /// The script in `workflows/` it runs in place of asking its agent.
+    pub workflow: Option<String>,
     /// What to do each time, Markdown.
     pub instructions: String,
     /// Repeats: five cron fields, local time.
@@ -438,7 +494,7 @@ pub struct Run {
 
 // ---------------------------------------------------------------- connections
 
-/// An outside MCP server (GitHub, Gmail, X…) lifeos's agents can use.
+/// An outside MCP server (GitHub, X…), or lifeos's own Google app, that lifeos's agents can use.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS), ts(export))]
 pub struct Connection {
@@ -446,12 +502,14 @@ pub struct Connection {
     pub name: String,
     /// The preset it came from, if any.
     pub preset: Option<String>,
-    /// http | stdio
+    /// http | stdio | built-in
     pub transport: String,
-    /// The URL, or the command line.
+    /// The URL, the command line, or the account a built-in app is signed in to.
     pub target: String,
     pub enabled: bool,
-    /// Secrets it names (`${NAME}`) that are not set yet: it stays off until they are.
+    /// Every Vault key it names (`${NAME}`), saved or not.
+    pub secrets: Vec<String>,
+    /// Keys it names that the Vault does not hold yet: it stays off until it does.
     pub missing: Vec<String>,
     /// Crew members allowed to use it (the Assistant always is).
     pub members: Vec<String>,
@@ -466,7 +524,7 @@ pub struct Preset {
     pub description: String,
     /// What the user does once on this machine, Markdown.
     pub setup: String,
-    /// Secrets it needs set with `lifeos secret set`.
+    /// Vault keys it needs (`${NAME}` in its configuration).
     pub secrets: Vec<String>,
     /// Already added.
     pub added: bool,
@@ -477,6 +535,219 @@ pub struct Preset {
 pub struct Connections {
     pub connections: Vec<Connection>,
     pub presets: Vec<Preset>,
-    /// Names of the secrets set (never their values).
-    pub secrets: Vec<String>,
+}
+
+// ---------------------------------------------------------------- vault
+
+/// What a Vault item is (after agentes.chat's ADR 0144): a website's login, a key a connection sends, or contact
+/// details agents type in forms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub enum VaultKind {
+    Login,
+    Key,
+    Contact,
+}
+
+/// A contact's details. Not a secret: the agents it is shared with read them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct VaultContact {
+    pub name: String,
+    pub company: String,
+    pub tax_id: String,
+    pub email: String,
+    pub phone: String,
+    pub address: String,
+}
+
+/// One thing in the owner's Vault, as anyone sees it: never the password or the key itself. A saved value goes back
+/// to no one, the owner included; only lifeos uses it, where an agent the item is shared with needs it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct VaultItem {
+    pub id: i64,
+    pub kind: VaultKind,
+    pub title: String,
+    pub description: String,
+    /// Login: the website (`https://host`).
+    pub website: Option<String>,
+    /// Login: the account's username.
+    pub username: Option<String>,
+    /// Key: the name a connection uses it by (`${GITHUB_TOKEN}`), `UPPER_SNAKE`.
+    pub key_name: Option<String>,
+    /// Key: its last four characters, to tell keys apart.
+    pub key_hint: Option<String>,
+    /// A password or a key is saved (logins and keys).
+    pub has_secret: bool,
+    /// Contact: the details.
+    pub contact: Option<VaultContact>,
+    /// Every agent may use it, those added later too.
+    pub all_agents: bool,
+    /// Otherwise the agents (cards) that may: `assistant`, crew member ids.
+    pub agents: Vec<String>,
+    /// Connections that name it (keys).
+    pub used_in: Vec<String>,
+    pub last_used: Option<String>,
+    pub created: String,
+    pub updated: String,
+}
+
+/// One use of a Vault item, never its value: a key given to an agent's connection (`key`), a contact an agent read
+/// (`read`), or the owner's `create`, `edit`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct VaultUse {
+    pub item: i64,
+    pub action: String,
+    /// The agent's card, for an agent's use.
+    pub agent: Option<String>,
+    /// Where: the connection a key went to.
+    pub detail: String,
+    pub at: String,
+}
+
+/// The Vault as the owner's Settings page reads it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct VaultView {
+    pub items: Vec<VaultItem>,
+    /// The latest uses, newest first.
+    pub uses: Vec<VaultUse>,
+}
+
+/// Public account state. Authentication material stays outside the vault.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct AgentAccount {
+    pub id: String,
+    pub label: String,
+    /// default | login | connection
+    pub kind: String,
+    /// unchecked | ready | near | limited | access | checking
+    pub status: String,
+    pub reason: Option<String>,
+    pub quota: Option<String>,
+    pub utilization: Option<f64>,
+    /// UNIX seconds, when reported by Claude Code.
+    pub resets_at: Option<i64>,
+    /// Earliest automatic retry when the provider gave no reset time.
+    pub retry_at: Option<i64>,
+}
+
+/// A private sign-in flow, shown to the owner only on the account screen.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct AccountSignin {
+    pub id: String,
+    pub url: Option<String>,
+    /// waiting | complete | failed
+    pub status: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct AgentAccounts {
+    pub accounts: Vec<AgentAccount>,
+    pub signin: Option<AccountSignin>,
+}
+
+// --------------------------------------------------------------------- google
+
+/// lifeos's Google app as the owner's Google page shows it. Tokens never leave the server.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct GoogleView {
+    /// The OAuth client the owner pasted, if any.
+    pub client: Option<GoogleClient>,
+    /// The Google account signed in, if any.
+    pub account: Option<GoogleAccount>,
+    /// A sign-in in progress, or the one that just failed.
+    pub signin: Option<GoogleSignin>,
+    /// Where Google sends the browser back after sign-in.
+    pub redirect: String,
+    /// Crew members allowed to use Google (the Assistant always is).
+    pub members: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct GoogleClient {
+    pub client_id: String,
+    /// desktop (sign-in comes back to loopback only) | web (comes back to the redirect URIs registered for it).
+    pub kind: String,
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct GoogleAccount {
+    pub email: String,
+    /// The services granted: gmail | calendar | drive | contacts.
+    pub services: Vec<String>,
+    /// RFC 3339.
+    pub since: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct GoogleSignin {
+    /// Google's consent page.
+    pub url: String,
+    /// waiting | failed
+    pub status: String,
+    pub error: Option<String>,
+}
+
+// ------------------------------------------------------------------ workflows
+
+/// The workflow scripts in the vault and the newest runs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct Workflows {
+    /// Script names: `workflows/<name>.js`.
+    pub scripts: Vec<String>,
+    pub runs: Vec<WorkflowRun>,
+}
+
+/// One run of a workflow script (remit's ADR-0073): a script re-evaluated against the journal of its steps' results.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct WorkflowRun {
+    pub id: i64,
+    /// The script's name: its file in `workflows/`, or its meta's name for one given inline.
+    pub name: String,
+    pub description: String,
+    /// running | waiting | done | failed | stopped
+    pub status: String,
+    /// What the script returned, as JSON text; empty until it did.
+    pub result: String,
+    pub error: String,
+    /// Who started it, in words.
+    pub started_by: String,
+    pub created: String,
+    pub finished: String,
+    pub steps: Vec<WorkflowStep>,
+}
+
+/// One call a run's script made.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct WorkflowStep {
+    pub seq: i64,
+    /// agent | wait | ask_owner | log | phase | …
+    pub verb: String,
+    pub label: String,
+    pub phase: String,
+    /// Its input, as JSON text.
+    pub input: String,
+    /// pending | done | failed
+    pub status: String,
+    /// Its result, as JSON text; empty while pending.
+    pub result: String,
+    pub error: String,
+    pub created: String,
+    pub finished: String,
 }

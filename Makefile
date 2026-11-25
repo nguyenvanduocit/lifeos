@@ -1,4 +1,4 @@
-.PHONY: deps gen check-gen core web build test dev
+.PHONY: deps gen check-gen core web build test dev ios computer
 
 deps:            ## npm packages for the Vue app
 	cd web && npm install
@@ -17,7 +17,11 @@ web: core        ## the Vue app -> web/dist (embedded by lifeos-web)
 	cd web && npm run build
 
 build: web       ## release binary with the web app inside
-	cargo build --release -p lifeos
+	cargo build --release -p lifeos -p lifeos-github
+
+computer:        ## LifeOS Computer.app (desktop use), installed in /Applications and served for other Macs
+	scripts/build-computer.sh --install
+	mkdir -p $(HOME)/.local/share/lifeos && cp "target/release/LifeOS Computer.zip" $(HOME)/.local/share/lifeos/LifeOS-Computer.zip
 
 test:            ## Rust, the wasm build and the Vue typecheck
 	cargo test -q --workspace
@@ -26,3 +30,6 @@ test:            ## Rust, the wasm build and the Vue typecheck
 
 dev:             ## backend + Vite with hot reload
 	scripts/dev.sh
+
+ios:             ## build the iPhone app and install it on the plugged-in phone; see docs/ios.md
+	scripts/install-ios.sh

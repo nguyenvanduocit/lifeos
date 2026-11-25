@@ -100,7 +100,9 @@ impl Life {
         let day = t.date.unwrap_or_else(today);
         let minor = to_minor(t.amount, &currency);
         self.conn.execute(
-            "INSERT INTO transactions(day, amount_minor, currency, category, note) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO transactions(id, day, amount_minor, currency, category, note)
+                 VALUES ((SELECT MAX(COALESCE(MAX(id), 0),
+                    COALESCE((SELECT highest FROM retired_row_ids WHERE table_name = 'transactions'), 0)) + 1 FROM transactions), ?1, ?2, ?3, ?4, ?5)",
             params![day.to_string(), minor, currency, category, t.note],
         )?;
         Ok(Transaction {

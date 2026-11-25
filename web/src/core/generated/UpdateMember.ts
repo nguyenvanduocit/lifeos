@@ -8,4 +8,4 @@ export type UpdateMember = { id: string, name?: string, role?: string,
 /**
  * Replaces its instructions.
  */
-instructions?: string, model?: string, effort?: Effort, tools?: Array<string>, };
+instructions?: string, model?: string, effort?: Effort, tools?: Array<string>, connections?: Array<string>, };

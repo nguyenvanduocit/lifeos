@@ -1,131 +1,207 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
-@import '@fontsource-variable/manrope';
-@import '@fontsource-variable/newsreader';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+@import '@fontsource/instrument-serif/400.css';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
+@import './panel.css';
 
 @custom-variant dark (@media (prefers-color-scheme: dark));
 
-/* Surfaces, chart colors, and status colors share the light and dark themes. */
+/* "Ink + signal" after Relay (docs/design.md): warm stone, a white canvas, ink and greys, one lime signal for what needs the owner, status as a dot and a word.
+   Light first in the file, dark (the owner's default) below. Names older pages read (accent, series, heat, violet…)
+   point at the same few values. */
 :root {
   color-scheme: light;
-  --primary: #365342;
-  --primary-foreground: #fff;
-  --bg: #f4f4ed;
-  --panel: #fdfcf8;
-  --panel2: #e9ebe1;
-  --line: #dedfd4;
-  --ink: #222920;
-  --ink2: #505b50;
-  --ink3: #677162;
-  --accent: #365b48;
-  --accent-soft: #d5e4d6;
-  --series: #365b48;
-  --heat-0: #e9ebe1;
-  --heat-1: #b9d3b6;
-  --heat-2: #87b18b;
-  --heat-3: #507d5b;
-  --heat-4: #335342;
-  --good: #0ca30c;
-  --warning: #fab219;
-  --serious: #ec835a;
-  --critical: #ae3535;
-  /* The agents' hue (as in remit): violet marks what an agent says or does. */
-  --violet: #7a5af5;
+  --bg: #f1efea;
+  --panel: #ffffff;
+  --panel2: #f7f6f3;
+  --panel3: #efede8;
+  --line: #e9e6e0;
+  --line2: #dcd8d0;
+  --ink: #141413;
+  --ink2: #66635d;
+  --ink3: #9a968f;
+  --signal: #dcf37a;
+  --signal-fg: #0a0a0b;
+  --signal-ink: #3f5600;
+  --good: #2e8a4e;
+  --warning: #b86e00;
+  --serious: #c2410c;
+  --critical: #d0532a;
+  --info: #3a63d8;
+  --primary: var(--ink);
+  --primary-foreground: var(--panel);
+  --accent: var(--ink);
+  --accent-soft: var(--panel3);
+  --series: var(--ink);
+  --sidebar: var(--bg);
+  --heat-0: #ececee;
+  --heat-1: #c9e98a;
+  --heat-2: #a6d84a;
+  --heat-3: #6f9a1a;
+  --heat-4: #3e5a07;
+  --violet: #6b4ee6;
   --violet-text: #5b3fd6;
-  --violet-wash: #f3effe;
+  --violet-wash: #efebfd;
   --violet-line: #d9cffc;
-  --panel3: #e5e7da;
   --critical-wash: #fdf0ef;
-  --sidebar: #eef0e6;
-  --brief: #f5f2f8;
-  --metric-focus: #e3ecdc;
-  --metric-routine: #eee7f4;
-  --metric-money: #f5ebd7;
-  --metric-capture: #e1ebee;
-  --metric-focus-ink: #365342;
-  --metric-routine-ink: #644d79;
-  --metric-money-ink: #78541e;
-  --metric-capture-ink: #345d6a;
+  /* An area's hue, only for its 8px mark (AreaMark) and a habit's or agent's own colour. */
+  --t-overview: #71717a;
+  --t-inbox: #3b82f6;
+  --t-tasks: #22a06b;
+  --t-goals: #e8833a;
+  --t-habits: #a855f7;
+  --t-people: #4f7cff;
+  --t-money: #d4a017;
+  --t-health: #e5484d;
+  --t-journal: #b07a4a;
+  --t-notes: #a3a300;
+  --t-crew: #8b5cf6;
+  --t-automation: #6366f1;
+  --t-talk: #14b8a6;
+  --t-integrations: #64748b;
+  --t-memory: #d946ef;
+  --tone-fg: #fff;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --primary: #bdd6bc;
-    --primary-foreground: #22372a;
-    --bg: #161b17;
-    --panel: #202622;
-    --panel2: #2b342d;
-    --line: #39463c;
-    --ink: #edf1e7;
-    --ink2: #c1ccbf;
-    --ink3: #a4b0a0;
-    --accent: #a5c8ab;
-    --accent-soft: #375641;
-    --series: #a5c8ab;
-    --heat-0: #2b382e;
-    --heat-1: #375641;
-    --heat-2: #507d5b;
-    --heat-3: #a5c8ab;
-    --heat-4: #c7e6c6;
+    --bg: #0d0d0c;
+    --panel: #161615;
+    --panel2: #1c1c1a;
+    --panel3: #232321;
+    --line: #262624;
+    --line2: #33322f;
+    --ink: #f2f1ee;
+    --ink2: #a8a59f;
+    --ink3: #75726c;
+    --signal-ink: #dcf37a;
+    --good: #6fd394;
+    --warning: #f2b84b;
+    --serious: #f08c3c;
+    --critical: #f08a66;
+    --info: #8fb0ff;
+    --heat-0: #1c1c20;
+    --heat-1: #34411a;
+    --heat-2: #5a7420;
+    --heat-3: #95bd36;
+    --heat-4: #d4f36b;
     --violet: #a98bff;
     --violet-text: #c7b6ff;
     --violet-wash: #16132a;
     --violet-line: #4a3a7a;
-    --panel3: #2b382e;
-    --critical: #ff9f9a;
     --critical-wash: #2a1414;
-    --sidebar: #1b221d;
-    --brief: #282333;
-    --metric-focus: #2d4132;
-    --metric-routine: #382e49;
-    --metric-money: #413520;
-    --metric-capture: #263b42;
-    --metric-focus-ink: #bdd6bc;
-    --metric-routine-ink: #dac6ef;
-    --metric-money-ink: #f0d299;
-    --metric-capture-ink: #b5d8e0;
+    --tone-fg: #0a0a0b;
   }
 }
 
 @theme inline {
   --color-sidebar: var(--sidebar);
-  --color-background: var(--panel);
-  --color-foreground: var(--ink);
+  /* A name the Assistant panel's scope sets (panel.css) wins there; elsewhere lifeos's own. */
+  --color-background: var(--background, var(--panel));
+  --color-foreground: var(--foreground, var(--ink));
   --color-card: var(--panel);
   --color-card-foreground: var(--ink);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--panel2);
   --color-secondary-foreground: var(--ink);
-  --color-accent-foreground: #fff;
-  --color-muted-foreground: var(--ink2);
+  --color-accent-foreground: var(--accent-foreground, var(--panel));
+  --color-muted-foreground: var(--muted-foreground, var(--ink2));
   --color-border: var(--line);
-  --color-input: var(--line);
-  --color-ring: var(--primary);
+  --color-input: var(--input, var(--line2));
+  --color-ring: var(--ring, var(--ink2));
   --color-destructive: var(--critical);
   --color-bg: var(--bg);
   --color-panel: var(--panel);
   --color-panel2: var(--panel2);
+  --color-panel3: var(--panel3);
   --color-line: var(--line);
+  --color-line2: var(--line2);
   --color-ink: var(--ink);
   --color-ink2: var(--ink2);
   --color-ink3: var(--ink3);
+  --color-signal: var(--signal);
+  --color-signal-fg: var(--signal-fg);
+  --color-signal-ink: var(--signal-ink);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
   --color-good: var(--good);
   --color-warning: var(--warning);
   --color-serious: var(--serious);
   --color-critical: var(--critical);
+  --color-info: var(--info);
   --color-violet: var(--violet);
   --color-violet-text: var(--violet-text);
   --color-violet-wash: var(--violet-wash);
   --color-violet-line: var(--violet-line);
-  --color-panel3: var(--panel3);
   --color-critical-wash: var(--critical-wash);
-  --font-mono: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
-  --font-display: 'Newsreader Variable', Georgia, serif;
-  --font-sans: 'Manrope Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --color-tone: var(--tone);
+  --color-tone-fg: var(--tone-fg);
+  --color-tone-wash: var(--tone-wash);
+  --color-tone-soft: var(--tone-soft);
+  --color-tone-line: var(--tone-line);
+  --color-tone-ink: var(--tone-ink);
+  --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-serif: 'Instrument Serif', ui-serif, Georgia, serif;
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* A tone (data-tone) colours small things only: a status tag, an area's mark. */
+:root { --tone: var(--ink2); }
+[data-tone='overview'] { --tone: var(--t-overview); }
+[data-tone='inbox'] { --tone: var(--t-inbox); }
+[data-tone='tasks'] { --tone: var(--t-tasks); }
+[data-tone='goals'] { --tone: var(--t-goals); }
+[data-tone='habits'] { --tone: var(--t-habits); }
+[data-tone='people'] { --tone: var(--t-people); }
+[data-tone='money'] { --tone: var(--t-money); }
+[data-tone='health'] { --tone: var(--t-health); }
+[data-tone='journal'] { --tone: var(--t-journal); }
+[data-tone='notes'] { --tone: var(--t-notes); }
+[data-tone='crew'] { --tone: var(--t-crew); }
+[data-tone='automation'] { --tone: var(--t-automation); }
+[data-tone='talk'] { --tone: var(--t-talk); }
+[data-tone='integrations'] { --tone: var(--t-integrations); }
+[data-tone='memory'] { --tone: var(--t-memory); }
+[data-tone='good'] { --tone: var(--good); }
+[data-tone='warning'] { --tone: var(--warning); }
+[data-tone='critical'] { --tone: var(--critical); }
+[data-tone='info'] { --tone: var(--info); }
+[data-tone='signal'] { --tone: var(--signal); }
+[data-tone='neutral'] { --tone: var(--ink3); }
+:root,
+[data-tone] {
+  --tone-wash: color-mix(in oklab, var(--tone) 12%, transparent);
+  --tone-soft: color-mix(in oklab, var(--tone) 20%, transparent);
+  --tone-line: color-mix(in oklab, var(--tone) 32%, transparent);
+  --tone-ink: color-mix(in oklab, var(--tone) 85%, var(--ink));
+}
+
+/* Machine facts in mono caps: column heads, section labels. */
+@utility mono-caps {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+/* Times, ids, amounts, counts beside a title. */
+@utility meta {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink3);
+}
+
+/* A table row's columns (TableHead, rows): the narrow set, then the wide set from a 44rem container up. */
+[data-cols] { grid-template-columns: var(--cols-sm); }
+@container (min-width: 44rem) {
+  [data-cols] { grid-template-columns: var(--cols); }
 }
 
 html,
@@ -138,36 +214,44 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  font-feature-settings: 'ss01', 'cv11';
   -webkit-font-smoothing: antialiased;
 }
 
-/* The photograph is decorative. Keep copy legible across both crop sizes. */
-.overview-hero {
-  background: linear-gradient(90deg, rgb(16 29 20 / .75) 10%, rgb(16 29 20 / .02) 82%),
-    linear-gradient(0deg, rgb(13 25 17 / .58), transparent 77%),
-    #354739 url('./assets/morning-hills.webp') center 57% / cover no-repeat;
+@layer base {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 8px;
+    background-color: color-mix(in oklab, var(--ink3) 80%, var(--panel));
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--ink3);
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background-color: var(--ink2);
+  }
+  /* Setting scrollbar-color in Blink also overrides the pseudo-elements. */
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: color-mix(in oklab, var(--ink3) 80%, var(--panel)) transparent;
+    }
+  }
 }
-
-.overview-metrics {
-  background-color: var(--line);
-  gap: 1px;
-}
-
-.metric-cell { background-color: var(--panel); }
-.metric-cell:hover { background-color: var(--panel2); }
-.metric-cell[data-tone='focus'] { --metric-bg: var(--metric-focus); --metric-ink: var(--metric-focus-ink); }
-.metric-cell[data-tone='routine'] { --metric-bg: var(--metric-routine); --metric-ink: var(--metric-routine-ink); }
-.metric-cell[data-tone='money'] { --metric-bg: var(--metric-money); --metric-ink: var(--metric-money-ink); }
-.metric-cell[data-tone='capture'] { --metric-bg: var(--metric-capture); --metric-ink: var(--metric-capture-ink); }
-
-.metric-icon {
-  background-color: var(--metric-bg);
-  color: var(--metric-ink);
-}
-
-.brief-card { background-color: var(--brief); }
 
 .prose-life {
+  overflow-wrap: anywhere;
   line-height: 1.6;
 }
 .prose-life h1,
@@ -188,12 +272,6 @@ body {
 .prose-life strong { font-weight: 600; }
 .prose-life > :first-child { margin-top: 0; }
 
-/* Your own message, as in remit: a bubble with a tucked corner. */
-.owner-bubble {
-  border: 1px solid var(--line);
-  border-radius: 12px 12px 3px 12px;
-  background: var(--panel3);
-}
 .prose-life pre {
   background: var(--bg);
   border: 1px solid var(--line);
@@ -201,16 +279,4 @@ body {
   padding: 0.5em 0.75em;
   overflow-x: auto;
   font-size: 0.85em;
-}
-@keyframes sheen {
-  from { background-position: 100% 0; }
-  to { background-position: -100% 0; }
-}
-.sheen {
-  background: linear-gradient(90deg, var(--ink3) 0%, var(--ink) 50%, var(--ink3) 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: sheen 1.6s linear infinite;
 }

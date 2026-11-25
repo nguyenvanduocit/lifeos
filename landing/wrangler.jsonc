@@ -1,0 +1,7 @@
+{
+  "name": "lifeos-landing",
+  "compatibility_date": "2026-06-01",
+  "assets": { "directory": "./dist" },
+  "routes": [{ "pattern": "lifeos.aiocean.io", "custom_domain": true }],
+  "workers_dev": true
+}

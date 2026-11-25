@@ -5,10 +5,20 @@
 //! There is no login: keep both ports on loopback (the default) or on a
 //! private network such as a tailnet, never on the open internet.
 
+mod accounts;
+mod attachments;
 mod brief;
 mod cert;
+mod computer;
 mod dist;
+mod google;
+mod health;
 mod link;
+mod plugins;
+mod plugin_events;
+mod routines;
+mod vault;
+mod widgets;
 
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
@@ -17,12 +27,11 @@ use anyhow::{Context, Result};
 use axum::Router;
 use axum::extract::State;
 use axum::http::HeaderMap;
-use axum::routing::get;
+use axum::routing::{get, post};
+use axum::extract::DefaultBodyLimit;
 use axum::Json;
-use lifeos_agent::{AgentConfig, SharedLife};
-use lifeos_agent::OnChange;
+use lifeos_agent::{AccountPool, Agents, AgentsConfig, Google, OnChange, SharedLife};
 use lifeos_wire::{LinkInfo, PATH};
-use std::collections::HashMap;
 use tokio::sync::watch;
 
 #[derive(Debug, Clone, Copy)]
@@ -37,11 +46,12 @@ pub struct WebConfig {
 
 pub(crate) struct AppState {
     pub life: SharedLife,
-    pub agent_config: AgentConfig,
-    /// One seat per agent the page talks to: the Assistant and each crew
-    /// member. A seat's agent starts on its first message, so the dashboard
-    /// works without Claude Code.
-    pub seats: std::sync::Mutex<HashMap<String, Arc<link::Seat>>>,
+    /// The Assistant and the crew. A session opens on an agent's first
+    /// message, so the dashboard works without Claude Code.
+    pub agents: Agents,
+    pub accounts: Arc<AccountPool>,
+    plugins: plugins::Plugins,
+    widget_refreshes: widgets::Refreshes,
     /// Grows on every change; open pages watch it to read again.
     pub changes: watch::Sender<u64>,
 }
@@ -51,14 +61,14 @@ impl AppState {
         self.changes.send_modify(|n| *n += 1);
     }
 
-    pub fn seat(&self, agent: &str) -> Arc<link::Seat> {
-        self.seats.lock().expect("seats lock").entry(agent.to_string()).or_default().clone()
-    }
 }
 
 struct HttpState {
+    /// Where the app is served (TCP).
+    http: SocketAddr,
     link: SocketAddr,
     certificate: Arc<RwLock<cert::Published>>,
+    app: Arc<AppState>,
 }
 
 /// A running server: where it listens and the hash a client pins.
@@ -67,8 +77,12 @@ pub struct Running {
     pub link: SocketAddr,
     /// SHA-256 of the link's certificate, hex.
     pub certificate_hash: String,
+    /// The owner's Macs online now (LifeOS Computer), as the agents reach them.
+    pub computers: Arc<lifeos_agent::Computers>,
     endpoint: web_transport_quinn::quinn::Endpoint,
     certificate: Arc<RwLock<cert::Published>>,
+    accounts: Arc<AccountPool>,
+    google: Arc<Google>,
     http_task: tokio::task::JoinHandle<std::io::Result<()>>,
 }
 
@@ -81,18 +95,27 @@ impl Running {
     }
 
     /// Serves until the HTTP server stops.
-    pub async fn wait(self) -> Result<()> {
-        self.http_task.await??;
+    pub async fn wait(mut self) -> Result<()> {
+        (&mut self.http_task).await??;
         Ok(())
     }
 }
 
-pub async fn serve(life: SharedLife, agent_config: AgentConfig, config: WebConfig) -> Result<()> {
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.accounts.cancel_pending_signin();
+        self.google.cancel();
+        self.http_task.abort();
+        self.endpoint.close(0u32.into(), b"server stopped");
+    }
+}
+
+pub async fn serve(life: SharedLife, agent_config: AgentsConfig, config: WebConfig) -> Result<()> {
     start(life, agent_config, config).await?.wait().await
 }
 
 /// Binds both ports (port 0 picks a free one) and serves in the background.
-pub async fn start(life: SharedLife, mut agent_config: AgentConfig, config: WebConfig) -> Result<Running> {
+pub async fn start(life: SharedLife, mut agent_config: AgentsConfig, config: WebConfig) -> Result<Running> {
     web_transport_quinn::quinn::rustls::crypto::ring::default_provider()
         .install_default()
         .ok();
@@ -103,44 +126,85 @@ pub async fn start(life: SharedLife, mut agent_config: AgentConfig, config: WebC
         let changes = changes.clone();
         OnChange::new(move || changes.send_modify(|n| *n += 1))
     };
-    agent_config.on_change = on_change;
-    let state = Arc::new(AppState {
-        life,
-        agent_config,
-        seats: Default::default(),
-        changes,
-    });
-    tokio::spawn(notice_outside_changes(state.clone()));
-    if let Some(at) = config.brief_at {
-        tokio::spawn(brief::daily(state.clone(), at));
-    }
-
+    agent_config.on_change = on_change.clone();
+    let accounts = AccountPool::new(life.clone(), on_change);
+    let running_accounts = accounts.clone();
+    agent_config.accounts = Some(accounts.clone());
+    let agents = Agents::start(life.clone(), agent_config).await?;
+    // No computer is connected to a server just started.
+    life.lock().expect("life lock").computers_all_gone()?;
+    let google = agents.google();
+    let computers = agents.computers();
+    let plugins = plugins::Plugins::load(life.lock().expect("life lock").home())?;
+    let state = Arc::new(AppState { life, agents, accounts, changes, plugins, widget_refreshes: Default::default() });
     let endpoint = web_transport_quinn::quinn::Endpoint::server(cert.quic_config()?, config.link)
         .with_context(|| format!("cannot listen for the link on udp {}", config.link))?;
     let link = endpoint.local_addr()?;
-    tokio::spawn(cert::rotate(endpoint.clone(), published.clone()));
-    tokio::spawn(link::accept(web_transport_quinn::Server::new(endpoint.clone()), state.clone()));
-
     let listener = tokio::net::TcpListener::bind(config.http)
         .await
         .with_context(|| format!("cannot listen on {}", config.http))?;
     let http = listener.local_addr()?;
+    let routine_lock = routines::lock(&state)?;
     let app = Router::new()
         .route("/link.json", get(link_json))
+        .route(
+            "/api/attachments/{key}/{name}",
+            get(attachments::get).put(attachments::put).layer(DefaultBodyLimit::max(attachments::MAX_BYTES)),
+        )
+        .route("/api/signals", get(plugins::signals))
+        .route("/api/plugins", get(plugins::catalog))
+        .route("/api/plugins/{id}", post(plugins::manage).layer(DefaultBodyLimit::max(1024)))
+        .route("/api/plugins/{id}/functions/{tool}", post(plugins::call).layer(DefaultBodyLimit::max(64 * 1024)))
+        .route("/api/plugins/{id}/hooks/{name}", post(plugins::hook).layer(DefaultBodyLimit::max(2 * 1024 * 1024)))
+        .route("/plugin-assets/{id}/{*name}", get(plugins::asset))
+        .route("/api/accounts", get(accounts::view).post(accounts::act).layer(DefaultBodyLimit::max(8 * 1024)))
+        .route("/api/widgets", post(widgets::act).layer(DefaultBodyLimit::max(64 * 1024)))
+        .route("/api/vault", get(vault::view).post(vault::act).layer(DefaultBodyLimit::max(1024 * 1024)))
+        .route("/api/google", get(google::view).post(google::act).layer(DefaultBodyLimit::max(32 * 1024)))
+        .route(lifeos_google::CALLBACK_PATH, get(google::callback))
+        .route(computer::DOWNLOAD_PATH, get(computer::download))
+        .route("/api/health/apple", post(health::apple).layer(DefaultBodyLimit::max(512 * 1024)))
+        .route("/hooks/{id}", post(routines::hook).layer(DefaultBodyLimit::max(64 * 1024)))
         .fallback(dist::serve)
         .with_state(Arc::new(HttpState {
+            http,
             link,
             certificate: published.clone(),
+            app: state.clone(),
         }));
-    let http_task = tokio::spawn(async move { axum::serve(listener, app).await });
+    let link_server = web_transport_quinn::Server::new(endpoint.clone());
+    let rotate_endpoint = endpoint.clone();
+    let rotate_cert = published.clone();
+    let http_task = tokio::spawn(async move {
+        let _routine_lock = routine_lock;
+        let daily_brief = async {
+            if let Some(at) = config.brief_at {
+                brief::daily(state.clone(), at).await;
+            }
+            std::future::pending::<()>().await;
+        };
+        tokio::select! {
+            result = axum::serve(listener, app) => result,
+            () = state.plugins.worker() => Ok(()),
+            () = state.plugins.watch_changes(state.changes.subscribe()) => Ok(()),
+            () = routines::worker(state.clone()) => Ok(()),
+            () = notice_outside_changes(state.clone()) => Ok(()),
+            () = daily_brief => Ok(()),
+            () = link::accept(link_server, state.clone()) => Ok(()),
+            () = cert::rotate(rotate_endpoint, rotate_cert) => Ok(()),
+        }
+    });
     tracing::info!("lifeos web on http://{http} (link on udp {link})");
     let certificate_hash = published.read().expect("certificate lock").hash.clone();
     Ok(Running {
         http,
         link,
         certificate_hash,
+        computers,
         endpoint,
         certificate: published,
+        accounts: running_accounts,
+        google,
         http_task,
     })
 }
@@ -200,7 +264,7 @@ fn link_url(link: SocketAddr, host_header: Option<&str>) -> String {
 }
 
 /// `localhost:7420` -> `localhost`, `[::1]:7420` -> `[::1]`.
-fn strip_port(host: &str) -> &str {
+pub(crate) fn strip_port(host: &str) -> &str {
     match host.rfind(':') {
         Some(i) if !host[i..].contains(']') => &host[..i],
         _ => host,

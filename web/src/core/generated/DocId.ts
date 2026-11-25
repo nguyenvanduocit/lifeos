@@ -2,6 +2,6 @@
 
 export type DocId = { 
 /**
- * Document id (file name without .md), or its path in the vault.
+ * Prefixed document ID (e.g. task_goi-me), legacy file stem, or vault path.
  */
 id: string, };

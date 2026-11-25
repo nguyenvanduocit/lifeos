@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plugin event monitor</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 1rem; font: 1rem system-ui, sans-serif; }
+  output { display: block; margin-top: .75rem; }
+</style>
+<button type="button">Read latest event</button>
+<output aria-live="polite">Ready to read</output>
+<script>
+  let pending = 0
+  document.querySelector('button').onclick = () => {
+    parent.postMessage({ type: 'lifeos:call', id: String(++pending), name: 'latest_event', arguments: {} }, '*')
+  }
+  addEventListener('message', (event) => {
+    if (event.source !== parent || event.data?.type !== 'lifeos:answer' || event.data.id !== String(pending)) return
+    document.querySelector('output').textContent = event.data.error ?? event.data.result
+  })
+</script>
+</html>

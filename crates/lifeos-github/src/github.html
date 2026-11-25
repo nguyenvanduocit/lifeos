@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GitHub setup</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { display: flow-root; margin: 0; padding: 1rem; font: 1rem/1.5 system-ui, sans-serif; }
+  h2 { font-size: 1rem; margin-block: 0 .5rem; }
+  p { margin: 0 0 1rem; }
+  p:last-of-type { margin-bottom: 0; }
+  code { overflow-wrap: anywhere; }
+</style>
+<h2>Agent access</h2>
+<p>Run <code>lifeos-github --mcp-config | lifeos connection set github</code> to add GitHub under Connections. Store <code>GITHUB_TOKEN</code> in the Vault and choose which agents may use it.</p>
+<h2>Repository events</h2>
+<p>Send signed JSON deliveries to <code>/api/plugins/github/hooks/webhook</code>. Enable the webhook and its shared secret in the plugin configuration.</p>
+<script>
+  new ResizeObserver(() => {
+    parent.postMessage({ type: 'lifeos:resize', height: document.body.getBoundingClientRect().height }, '*')
+  }).observe(document.body, { box: 'border-box' })
+</script>

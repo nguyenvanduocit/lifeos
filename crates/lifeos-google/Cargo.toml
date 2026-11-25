@@ -1,0 +1,27 @@
+[package]
+name = "lifeos-google"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.105"
+base64 = "0.22.1"
+chrono = "0.4.45"
+futures = "0.3.34"
+getrandom = "0.4.3"
+lifeos-core = { version = "0.1.0", path = "../lifeos-core" }
+lifeos-wire = { version = "0.1.0", path = "../lifeos-wire" }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "form", "query"] }
+schemars = "1.2.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+tempfile = "3.27.0"
+tokio = { version = "1.54.1", features = ["sync", "time"] }
+tracing = "0.1.44"
+url = "2.5.9"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+tokio = { version = "1.54.1", features = ["macros", "rt"] }

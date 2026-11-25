@@ -2,8 +2,4 @@
 import type { Connection } from "./Connection";
 import type { Preset } from "./Preset";
 
-export type Connections = { connections: Array<Connection>, presets: Array<Preset>, 
-/**
- * Names of the secrets set (never their values).
- */
-secrets: Array<string>, };
+export type Connections = { connections: Array<Connection>, presets: Array<Preset>, };

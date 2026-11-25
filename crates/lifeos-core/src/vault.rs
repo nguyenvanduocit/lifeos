@@ -77,6 +77,9 @@ pub struct Frontmatter {
     /// Routine: who does it, `assistant` or a crew member id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    /// Routine: the script in `workflows/` it runs, in place of asking its agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<String>,
     /// Routine: repeats on these five cron fields, local time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cron: Option<String>,

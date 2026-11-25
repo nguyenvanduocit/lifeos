@@ -9,6 +9,8 @@ chrono = "0.4.45"
 anyhow = "1.0.105"
 clap = { version = "4.6.10", features = ["derive", "env"] }
 lifeos-agent = { version = "0.1.0", path = "../lifeos-agent" }
+lifeos-wire = { version = "0.1.0", path = "../lifeos-wire" }
+jail = { path = "../jail" }
 lifeos-core = { version = "0.1.0", path = "../lifeos-core" }
 lifeos-mcp = { version = "0.1.0", path = "../lifeos-mcp" }
 lifeos-telegram = { version = "0.1.0", path = "../lifeos-telegram" }

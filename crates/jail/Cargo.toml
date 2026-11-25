@@ -1,0 +1,53 @@
+[package]
+name = "jail"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# remit's lints, kept with the code taken from it.
+[lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+as_conversions = "deny"
+let_underscore_must_use = "deny"
+mem_forget = "deny"
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+redundant_clone = "deny"
+
+[dependencies]
+procgroup = { path = "../procgroup" }
+rustix = { version = "1.1.6", features = ["process", "fs", "net", "thread"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json.workspace = true
+signal-hook = "0.4.6"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["process", "io-util", "net", "rt", "time", "macros", "sync"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { version = "0.31.3", default-features = false, features = ["sched"] }
+rustix = { version = "1.1.6", features = ["process", "fs", "net", "thread", "mount"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libproc = "0.15.0"
+
+[[test]]
+name = "jail"
+harness = false
+
+[dev-dependencies]
+libtest-mimic = "0.8.2"
+tokio = { version = "1.54.1", features = ["process", "io-util", "net", "rt", "time", "macros", "sync"] }

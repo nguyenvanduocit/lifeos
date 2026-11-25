@@ -28,8 +28,19 @@ name=$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sy
 
 [ -x "$root/target/release/lifeos" ] || { echo "install-tailscale: build first: make build" >&2; exit 1; }
 mkdir -p "$(dirname "$bin")" "$(dirname "$plist")" "$(dirname "$log")"
-cp "$root/target/release/lifeos" "$bin"
+# A new file, not the old one written over: macOS keeps the signature it checked for the old file's inode and kills the
+# new binary there (OS_REASON_CODESIGNING).
+cp "$root/target/release/lifeos" "$bin.new"
+mv -f "$bin.new" "$bin"
 [ -d "$home" ] || "$bin" init --home "$home"
+package_dir="$home/.lifeos/plugin-packages"
+if [ -x "$root/target/release/lifeos-github" ]; then
+  mkdir -p "$package_dir"
+  staged=$(mktemp "$package_dir/.lifeos-github.XXXXXX")
+  cp -p "$root/target/release/lifeos-github" "$staged"
+  mv -f "$staged" "$package_dir/lifeos-github"
+fi
+
 
 cat > "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

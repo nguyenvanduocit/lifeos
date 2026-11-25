@@ -16,7 +16,8 @@ pub async fn daily(state: Arc<AppState>, at: NaiveTime) {
             continue;
         }
         tracing::info!("writing the morning brief");
-        if let Err(err) = crate::link::chat(&state, lifeos_wire::ASSISTANT, lifeos_agent::BRIEF_PROMPT, None).await {
+        let by = lifeos_agent::routine("brief", "Morning brief · scheduled");
+        if let Err(err) = state.agents.ask(lifeos_wire::ASSISTANT, lifeos_agent::BRIEF_PROMPT, by).await {
             tracing::warn!("morning brief failed: {err:#}");
         }
         // Do not run twice within the same minute.

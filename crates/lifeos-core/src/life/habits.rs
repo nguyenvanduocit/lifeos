@@ -39,6 +39,14 @@ input! {
 }
 
 input! {
+    pub struct RenameHabit {
+        /// A habit ID or its existing name.
+        pub id: String,
+        pub name: String,
+    }
+}
+
+input! {
     pub struct ListHabits {
         /// Also habits the user stopped.
         #[serde(default)]
@@ -47,17 +55,53 @@ input! {
 }
 
 impl Life {
-    pub fn define_habit(&self, h: DefineHabit) -> Result<HabitStatus> {
-        let name = key(&h.name);
-        if name.is_empty() {
-            bail!("habit name is empty");
+    fn habit_name(&self, reference: &str) -> Result<Option<String>> {
+        let name = key(reference);
+        Ok(self.conn.query_row(
+            "SELECT name FROM habits
+             WHERE entity_id = ?1 OR name = ?1 OR entity_id = (SELECT entity_id FROM habit_aliases WHERE name = ?1)
+             ORDER BY CASE WHEN entity_id = ?1 THEN 0 WHEN name = ?1 THEN 1 ELSE 2 END LIMIT 1",
+            [&name],
+            |row| row.get(0),
+        ).optional()?)
+    }
+
+    fn habit_name_for_write(&self, reference: &str) -> Result<String> {
+        if let Some(name) = self.habit_name(reference)? {
+            return Ok(name);
         }
+        let name = key(reference);
+        anyhow::ensure!(!name.is_empty(), "habit name is empty");
+        anyhow::ensure!(!name.starts_with("habit_"), "unknown habit ID or reserved habit name");
+        Ok(name)
+    }
+
+    pub fn habit(&self, reference: &str) -> Result<HabitStatus> {
+        let name = self.habit_name(reference)?.ok_or_else(|| anyhow::anyhow!("no habit '{reference}'"))?;
+        self.habit_status(&name, today())
+    }
+
+    pub fn rename_habit(&self, input: RenameHabit) -> Result<HabitStatus> {
+        let old = self.habit_name(&input.id)?.ok_or_else(|| anyhow::anyhow!("no habit '{}'", input.id))?;
+        let name = key(&input.name);
+        anyhow::ensure!(!name.is_empty() && !name.starts_with("habit_"), "invalid habit name");
+        if old != name {
+            let occupied = self.habit_name(&name)?;
+            anyhow::ensure!(occupied.as_ref().is_none_or(|owner| owner == &old), "habit name is already in use");
+            self.conn.execute("UPDATE habits SET name = ?1 WHERE name = ?2", params![name, old])?;
+        }
+        self.habit_status(&name, today())
+    }
+
+    pub fn define_habit(&self, h: DefineHabit) -> Result<HabitStatus> {
+        let name = self.habit_name_for_write(&h.name)?;
         let target = h.target_per_week.unwrap_or(7);
         if !(1..=7).contains(&target) {
             bail!("target_per_week is 1–7");
         }
         self.conn.execute(
-            "INSERT INTO habits(name, unit, target_per_week, created) VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO habits(name, unit, target_per_week, created, entity_id)
+             VALUES (?1, ?2, ?3, ?4, 'habit_' || lower(hex(randomblob(12))))
              ON CONFLICT(name) DO UPDATE SET unit = COALESCE(?2, unit), target_per_week = ?3, archived = 0",
             params![name, h.unit, target, today().to_string()],
         )?;
@@ -65,20 +109,18 @@ impl Life {
     }
 
     pub fn archive_habit(&self, name: &str) -> Result<()> {
-        if self.conn.execute("UPDATE habits SET archived = 1 WHERE name = ?1", [key(name)])? == 0 {
+        let resolved = self.habit_name(name)?;
+        if self.conn.execute("UPDATE habits SET archived = 1 WHERE name = ?1", [resolved])? == 0 {
             bail!("no habit '{name}'");
         }
         Ok(())
     }
 
     pub fn log_habit(&self, l: LogHabit) -> Result<HabitStatus> {
-        let name = key(&l.habit);
-        if name.is_empty() {
-            bail!("habit name is empty");
-        }
+        let name = self.habit_name_for_write(&l.habit)?;
         let day = l.date.unwrap_or_else(today);
         self.conn.execute(
-            "INSERT INTO habits(name, created) VALUES (?1, ?2) ON CONFLICT(name) DO UPDATE SET archived = 0",
+            "INSERT INTO habits(name, created, entity_id) VALUES (?1, ?2, 'habit_' || lower(hex(randomblob(12)))) ON CONFLICT(name) DO UPDATE SET archived = 0",
             params![name, day.to_string()],
         )?;
         self.conn.execute(
@@ -101,13 +143,11 @@ impl Life {
     }
 
     pub(super) fn habit_status(&self, habit: &str, on: NaiveDate) -> Result<HabitStatus> {
-        let (unit, target): (Option<String>, u32) = self
-            .conn
-            .query_row("SELECT unit, target_per_week FROM habits WHERE name = ?1", [habit], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-            .optional()?
-            .unwrap_or((None, 7));
+        let (id, unit, target): (String, Option<String>, u32) = self.conn.query_row(
+            "SELECT entity_id, unit, target_per_week FROM habits WHERE name = ?1",
+            [habit],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
         let logs: HashMap<NaiveDate, f64> = {
             let mut stmt = self.conn.prepare(
                 "SELECT day, value FROM habit_logs WHERE habit = ?1 AND day <= ?2 AND value > 0",
@@ -135,6 +175,7 @@ impl Life {
             .map(|back| logs.get(&(on - Duration::days(back))).copied().unwrap_or(0.0))
             .collect();
         Ok(HabitStatus {
+            id: Some(id),
             habit: habit.to_string(),
             unit,
             target_per_week: target,

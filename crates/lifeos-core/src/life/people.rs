@@ -139,16 +139,18 @@ impl Life {
     }
 
     pub fn log_interaction(&self, i: LogInteraction) -> Result<Interaction> {
-        self.find(Kind::Person, &i.person)
+        let person = self.find(Kind::Person, &i.person)
             .with_context(|| format!("no person '{}'; list_people shows ids", i.person))?;
         let day = i.date.unwrap_or_else(today);
         self.conn.execute(
-            "INSERT INTO interactions(person, day, channel, note) VALUES (?1, ?2, ?3, ?4)",
-            params![i.person, day.to_string(), i.channel, i.note],
+            "INSERT INTO interactions(id, person, day, channel, note)
+                 VALUES ((SELECT MAX(COALESCE(MAX(id), 0),
+                    COALESCE((SELECT highest FROM retired_row_ids WHERE table_name = 'interactions'), 0)) + 1 FROM interactions), ?1, ?2, ?3, ?4)",
+            params![person.id, day.to_string(), i.channel, i.note],
         )?;
         Ok(Interaction {
             id: self.conn.last_insert_rowid(),
-            person: i.person,
+            person: person.id,
             day: day.to_string(),
             channel: i.channel,
             note: i.note,
@@ -227,13 +229,13 @@ impl Life {
         let person = self
             .people(&ListPeople::default(), today())?
             .into_iter()
-            .find(|p| p.id == id)
+            .find(|p| p.id == doc.id)
             .context("person not in the index")?;
         let mut stmt = self.conn.prepare(
             "SELECT id, person, day, channel, note FROM interactions WHERE person = ?1 ORDER BY day DESC, id DESC",
         )?;
         let interactions = stmt
-            .query_map([id], |r| {
+            .query_map([&doc.id], |r| {
                 Ok(Interaction { id: r.get(0)?, person: r.get(1)?, day: r.get(2)?, channel: r.get(3)?, note: r.get(4)? })
             })?
             .collect::<rusqlite::Result<_>>()?;

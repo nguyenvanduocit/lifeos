@@ -1,0 +1,28 @@
+[package]
+name = "lifeos-computer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "LifeOS Computer: lets lifeos's agents see and work this Mac's screen."
+
+[[bin]]
+name = "lifeos-computer"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.105"
+lifeos-desktop = { version = "0.1.0", path = "../lifeos-desktop" }
+lifeos-wire = { version = "0.1.0", path = "../lifeos-wire" }
+getrandom = "0.4.3"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+url = "2.5.9"
+web-transport-quinn = { version = "0.13.6", default-features = false, features = ["ring"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", features = ["NSString", "NSURL", "NSTimer", "NSDate", "NSRunLoop", "NSGeometry", "NSError", "NSObject"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSResponder", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSMenu", "NSMenuItem", "NSAlert", "NSTextField", "NSImage", "NSWorkspace", "NSRunningApplication", "NSCell", "NSButtonCell", "NSWindow"] }
+objc2-service-management = { version = "0.3.2", features = ["SMAppService"] }

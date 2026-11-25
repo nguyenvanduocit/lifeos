@@ -4,15 +4,17 @@
 //! the whole crew; a member's own memories are its alone.
 //!
 //! Agents write memories themselves (`remember`, `forget`). Before each
-//! message, lifeos recalls the few that bear on it (`recall_for`) and puts
-//! them in front of the message, so nothing depends on the agent searching.
+//! message, lifeos recalls the few that bear on it and puts them in front of
+//! the message, so nothing depends on the agent searching. How they are ranked
+//! (words, meaning, links, a judge) is lifeos-agent's `recall`, as remit's
+//! ADR-0117 has it; this keeps the record, its use, its vectors and its links.
 
 use anyhow::{Result, bail};
 use chrono::Local;
 use rusqlite::{OptionalExtension, Row, params};
 
 use super::Life;
-use lifeos_wire::{ASSISTANT, Memory};
+use lifeos_wire::{ASSISTANT, Memory, MemoryLink};
 
 choice! {
     pub enum MemoryKind {
@@ -40,8 +42,41 @@ input! {
         pub body: String,
         /// Id of a memory this one replaces (it is then forgotten).
         pub replaces: Option<i64>,
+        /// Ids of memories this one rests on, relates to, or contradicts.
+        #[serde(default)]
+        pub links: Vec<LinkTo>,
     }
 }
+
+choice! {
+    pub enum LinkKind {
+        /// It rests on the other: the other is its reason or evidence.
+        Because => "because",
+        /// It bears on the other.
+        Related => "related",
+        /// It says the other is wrong, and both stand until one is forgotten.
+        Contradicts => "contradicts",
+    }
+}
+
+input! {
+    pub struct LinkTo {
+        pub id: i64,
+        pub kind: LinkKind,
+    }
+}
+
+input! {
+    pub struct RateMemory {
+        /// The memory's id, from the `<recalled>` note or `recall`.
+        pub id: i64,
+        /// It helped with what you did; false: it misled you.
+        pub helped: bool,
+    }
+}
+
+/// The link a replacing memory holds to the one it replaces.
+pub const SUPERSEDES: &str = "supersedes";
 
 input! {
     pub struct Forget {
@@ -72,7 +107,11 @@ input! {
     }
 }
 
-const COLUMNS: &str = "m.id, m.holder, m.kind, m.title, m.body, m.created, m.updated, m.ended, m.why_ended, m.recalled";
+const COLUMNS: &str = "m.id, m.holder, m.kind, m.title, m.body, m.created, m.updated, m.ended, m.why_ended, m.recalled, \
+                       m.trust, COALESCE(u.helped, 0), COALESCE(u.misled, 0), u.last_recalled, m.source, m.evidence";
+
+/// What every read of memories joins: their use, counted beside them.
+const USE: &str = "LEFT JOIN memory_use u ON u.memory = m.id";
 
 fn memory(r: &Row<'_>) -> rusqlite::Result<Memory> {
     Ok(Memory {
@@ -86,7 +125,39 @@ fn memory(r: &Row<'_>) -> rusqlite::Result<Memory> {
         ended: r.get(7)?,
         why_ended: r.get(8)?,
         recalled: r.get(9)?,
+        trust: r.get(10)?,
+        helped: r.get(11)?,
+        misled: r.get(12)?,
+        last_recalled: r.get(13)?,
+        links: Vec::new(),
+        source: r.get(14)?,
+        evidence: r.get(15)?,
     })
+}
+
+/// What a memory's meaning is read from: the text its vector is made of and the reranker judges (remit's
+/// `Memory::passage`). Pure.
+pub fn passage(m: &Memory) -> String {
+    format!("{}: {}. {}", m.kind, m.title.trim(), m.body.trim())
+}
+
+/// A short, stable fingerprint of a passage: a vector is kept only while it matches. Pure.
+pub fn passage_hash(passage: &str) -> String {
+    // FNV-1a, 64 bits: enough to tell a changed passage, not a secret.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in passage.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+fn vector_bytes(v: &[f32]) -> Vec<u8> {
+    v.iter().flat_map(|x| x.to_le_bytes()).collect()
+}
+
+fn vector_of(bytes: &[u8]) -> Vec<f32> {
+    bytes.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect()
 }
 
 fn now() -> String {
@@ -119,7 +190,154 @@ impl Life {
         let id = self.conn.last_insert_rowid();
         self.conn
             .execute("INSERT INTO memories_fts(rowid, title, body) VALUES (?1, ?2, ?3)", params![id, title, body])?;
+        if let Some(old) = r.replaces {
+            self.link(id, old, SUPERSEDES)?;
+        }
+        for l in &r.links {
+            if l.id != id && self.memory(l.id).is_ok() {
+                self.link(id, l.id, l.kind.as_str())?;
+            }
+        }
         self.memory(id)
+    }
+
+    fn link(&self, src: i64, dst: i64, kind: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO memory_links(src, dst, kind) VALUES (?1, ?2, ?3)",
+            params![src, dst, kind],
+        )?;
+        Ok(())
+    }
+
+    /// The links between memories, each as (from, to, kind).
+    pub fn memory_links(&self) -> Result<Vec<(i64, i64, String)>> {
+        let mut stmt = self.conn.prepare("SELECT src, dst, kind FROM memory_links")?;
+        Ok(stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn with_links(&self, mut ms: Vec<Memory>) -> Result<Vec<Memory>> {
+        let mut stmt = self.conn.prepare("SELECT dst, kind FROM memory_links WHERE src = ?1 ORDER BY dst")?;
+        for m in &mut ms {
+            m.links = stmt
+                .query_map([m.id], |r| Ok(MemoryLink { to: r.get(0)?, kind: r.get(1)? }))?
+                .collect::<rusqlite::Result<_>>()?;
+        }
+        Ok(ms)
+    }
+
+    /// What `holder` may recall: its own active memories, and for a crew member the Assistant's too.
+    pub fn readable_memories(&self, holder: &str) -> Result<Vec<Memory>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {COLUMNS} FROM memories m {USE} WHERE m.ended IS NULL AND m.holder IN (?1, '{ASSISTANT}')"
+        ))?;
+        let rows = stmt.query_map([holder], memory)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        self.with_links(rows)
+    }
+
+    /// The ids of what `holder` may recall whose words match `text`, best first.
+    pub fn memory_words(&self, holder: &str, text: &str, limit: u32) -> Result<Vec<i64>> {
+        Ok(self.recall(holder, text, limit)?.into_iter().map(|m| m.id).collect())
+    }
+
+    /// The vectors under `model` of what `holder` may recall.
+    pub fn memory_vectors(&self, holder: &str, model: &str) -> Result<Vec<(i64, Vec<f32>)>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT m.id, e.vector FROM memory_embeddings e JOIN memories m ON m.id = e.memory
+             WHERE e.model = ?2 AND m.ended IS NULL AND m.holder IN (?1, '{ASSISTANT}')"
+        ))?;
+        let rows = stmt.query_map(params![holder, model], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?)))?;
+        Ok(rows.map(|r| r.map(|(id, b)| (id, vector_of(&b)))).collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Active memories with no vector under `model` for their passage as it now is, and none refused lately: each with
+    /// its passage and the passage's hash.
+    pub fn unembedded(&self, model: &str, limit: u32) -> Result<Vec<(i64, String, String)>> {
+        let mut stmt = self.conn.prepare(&format!("SELECT {COLUMNS} FROM memories m {USE} WHERE m.ended IS NULL ORDER BY m.id"))?;
+        let all = stmt.query_map([], memory)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let today = now();
+        let mut out = Vec::new();
+        for m in all {
+            let p = passage(&m);
+            let hash = passage_hash(&p);
+            let held: Option<String> = self
+                .conn
+                .query_row("SELECT hash FROM memory_embeddings WHERE memory = ?1 AND model = ?2", params![m.id, model], |r| {
+                    r.get(0)
+                })
+                .optional()?;
+            let refused: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT until FROM memory_unembedded WHERE memory = ?1 AND model = ?2 AND hash = ?3",
+                    params![m.id, model, hash],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if held.as_deref() != Some(hash.as_str()) && refused.is_none_or(|until| until < today) {
+                out.push((m.id, p, hash));
+                if out.len() >= limit as usize {
+                    break;
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Keeps `vector` as memory `id`'s under `model`, only while `hash` is still its passage's: a memory changed or
+    /// ended meanwhile keeps nothing. Whether it was kept.
+    pub fn keep_vector(&self, id: i64, model: &str, hash: &str, vector: &[f32]) -> Result<bool> {
+        let Ok(m) = self.memory(id) else { return Ok(false) };
+        if m.ended.is_some() || passage_hash(&passage(&m)) != hash {
+            return Ok(false);
+        }
+        self.conn.execute(
+            "INSERT INTO memory_embeddings(memory, model, hash, vector) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(memory, model) DO UPDATE SET hash = excluded.hash, vector = excluded.vector",
+            params![id, model, hash, vector_bytes(vector)],
+        )?;
+        Ok(true)
+    }
+
+    /// Leaves a passage the model refused alone for a day.
+    pub fn refused_vector(&self, id: i64, model: &str, hash: &str) -> Result<()> {
+        let until = (Local::now() + chrono::Duration::days(1)).format("%Y-%m-%d %H:%M").to_string();
+        self.conn.execute(
+            "INSERT INTO memory_unembedded(memory, model, hash, until) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(memory, model) DO UPDATE SET hash = excluded.hash, until = excluded.until",
+            params![id, model, hash, until],
+        )?;
+        Ok(())
+    }
+
+    /// Counts memories as given to a conversation.
+    pub fn count_given(&self, ids: &[i64]) -> Result<()> {
+        let at = now();
+        for id in ids {
+            self.conn.execute("UPDATE memories SET recalled = recalled + 1 WHERE id = ?1", [id])?;
+            self.conn.execute(
+                "INSERT INTO memory_use(memory, last_recalled) VALUES (?1, ?2)
+                 ON CONFLICT(memory) DO UPDATE SET last_recalled = excluded.last_recalled",
+                params![id, at],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// What agent `holder` said of a memory it was given: it helped, or it misled. Any memory it may recall.
+    pub fn rate_memory(&self, holder: &str, r: RateMemory) -> Result<Memory> {
+        let m = self.memory(r.id)?;
+        if m.holder != holder && m.holder != ASSISTANT {
+            bail!("memory {} is not one you recall", r.id);
+        }
+        let column = if r.helped { "helped" } else { "misled" };
+        self.conn.execute(
+            &format!(
+                "INSERT INTO memory_use(memory, {column}) VALUES (?1, 1)
+                 ON CONFLICT(memory) DO UPDATE SET {column} = {column} + 1"
+            ),
+            [r.id],
+        )?;
+        self.memory(r.id)
     }
 
     pub fn forget(&self, holder: &str, f: Forget) -> Result<()> {
@@ -128,7 +346,7 @@ impl Life {
 
     /// The Assistant may end anyone's memory (it acts for the user); a crew
     /// member only its own.
-    fn end_memory(&self, holder: &str, id: i64, why: &str) -> Result<()> {
+    pub(crate) fn end_memory(&self, holder: &str, id: i64, why: &str) -> Result<()> {
         let owner: Option<String> = self
             .conn
             .query_row("SELECT holder FROM memories WHERE id = ?1 AND ended IS NULL", [id], |r| r.get(0))
@@ -147,7 +365,8 @@ impl Life {
     }
 
     pub fn memory(&self, id: i64) -> Result<Memory> {
-        Ok(self.conn.query_row(&format!("SELECT {COLUMNS} FROM memories m WHERE m.id = ?1"), [id], memory)?)
+        let m = self.conn.query_row(&format!("SELECT {COLUMNS} FROM memories m {USE} WHERE m.id = ?1"), [id], memory)?;
+        Ok(self.with_links(vec![m])?.remove(0))
     }
 
     /// What `holder` can draw on: its own memories, and for a crew member
@@ -158,7 +377,7 @@ impl Life {
             return Ok(vec![]);
         }
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {COLUMNS} FROM memories_fts f JOIN memories m ON m.id = f.rowid
+            "SELECT {COLUMNS} FROM memories_fts f JOIN memories m ON m.id = f.rowid {USE}
              WHERE memories_fts MATCH ?1 AND m.ended IS NULL AND m.holder IN (?2, '{ASSISTANT}')
              ORDER BY bm25(memories_fts) LIMIT ?3"
         ))?;
@@ -172,9 +391,7 @@ impl Life {
         let mut found = self.recall(holder, message, limit + shown.len() as u32)?;
         found.retain(|m| !shown.contains(&m.id));
         found.truncate(limit as usize);
-        for m in &found {
-            self.conn.execute("UPDATE memories SET recalled = recalled + 1 WHERE id = ?1", [m.id])?;
-        }
+        self.count_given(&found.iter().map(|m| m.id).collect::<Vec<_>>())?;
         Ok(found)
     }
 
@@ -183,7 +400,7 @@ impl Life {
         let (sql, words) = match q.query.as_deref().map(any_of).filter(|w| !w.is_empty()) {
             Some(words) => (
                 format!(
-                    "SELECT {COLUMNS} FROM memories_fts f JOIN memories m ON m.id = f.rowid
+                    "SELECT {COLUMNS} FROM memories_fts f JOIN memories m ON m.id = f.rowid {USE}
                      WHERE memories_fts MATCH ?2 AND (?1 IS NULL OR m.holder = ?1) AND {ended}
                      ORDER BY bm25(memories_fts) LIMIT 200"
                 ),
@@ -191,15 +408,15 @@ impl Life {
             ),
             None => (
                 format!(
-                    "SELECT {COLUMNS} FROM memories m WHERE (?1 IS NULL OR m.holder = ?1) AND {ended}
+                    "SELECT {COLUMNS} FROM memories m {USE} WHERE (?1 IS NULL OR m.holder = ?1) AND {ended}
                      AND (?2 IS NULL OR 1) ORDER BY m.ended IS NOT NULL, m.updated DESC, m.id DESC LIMIT 500"
                 ),
                 None,
             ),
         };
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![q.holder, words], memory)?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        let rows = stmt.query_map(params![q.holder, words], memory)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        self.with_links(rows)
     }
 
     pub fn memory_count(&self, holder: &str) -> Result<u32> {
@@ -240,7 +457,7 @@ mod tests {
     use crate::life::test_support::*;
 
     fn fact(title: &str, body: &str) -> Remember {
-        Remember { kind: MemoryKind::Fact, title: title.into(), body: body.into(), replaces: None }
+        Remember { kind: MemoryKind::Fact, title: title.into(), body: body.into(), replaces: None, links: vec![] }
     }
 
     #[test]
@@ -275,5 +492,38 @@ mod tests {
         let hoa = ListMemories { query: Some("hoa".into()), ..Default::default() };
         assert_eq!(life.memories(&hoa).unwrap().len(), 1);
         assert_eq!(life.memory_count(ASSISTANT).unwrap(), 1);
+    }
+
+    #[test]
+    fn use_vectors_and_links_are_kept_beside_the_memory() {
+        let (_dir, life) = life();
+        let a = life.remember(ASSISTANT, fact("Mẹ thích hoa lan", "")).unwrap();
+        let b = life
+            .remember(ASSISTANT, Remember {
+                links: vec![LinkTo { id: a.id, kind: LinkKind::Because }],
+                ..fact("Sinh nhật mẹ tặng lan", "")
+            })
+            .unwrap();
+        assert_eq!(b.links, [MemoryLink { to: a.id, kind: "because".into() }]);
+
+        life.count_given(&[a.id]).unwrap();
+        life.rate_memory("hlv", RateMemory { id: a.id, helped: true }).unwrap();
+        let a2 = life.rate_memory(ASSISTANT, RateMemory { id: a.id, helped: false }).unwrap();
+        assert_eq!((a2.recalled, a2.helped, a2.misled, a2.trust.as_str()), (1, 1, 1, "auto"));
+        assert!(a2.last_recalled.is_some());
+
+        let todo = life.unembedded("m", 10).unwrap();
+        assert_eq!(todo.iter().map(|t| t.0).collect::<Vec<_>>(), [a.id, b.id]);
+        let (id, _, hash) = todo[0].clone();
+        assert!(life.keep_vector(id, "m", &hash, &[0.5, -1.0]).unwrap());
+        assert!(!life.keep_vector(b.id, "m", "stale", &[1.0]).unwrap());
+        life.refused_vector(b.id, "m", &todo[1].2).unwrap();
+        assert!(life.unembedded("m", 10).unwrap().is_empty());
+        assert_eq!(life.memory_vectors("hlv", "m").unwrap(), [(a.id, vec![0.5, -1.0])]);
+        assert!(life.memory_vectors("hlv", "other").unwrap().is_empty());
+
+        let c = life.remember(ASSISTANT, Remember { replaces: Some(a.id), ..fact("Mẹ thích hoa hồng", "") }).unwrap();
+        assert!(life.memory_links().unwrap().contains(&(c.id, a.id, SUPERSEDES.to_owned())));
+        assert!(life.memory_vectors("hlv", "m").unwrap().is_empty(), "an ended memory is not searched");
     }
 }

@@ -7,7 +7,7 @@ use chrono::Local;
 
 use super::Life;
 use crate::vault::{Doc, Frontmatter, Kind};
-use lifeos_wire::{ASSISTANT, CrewMember};
+use lifeos_wire::{ASSISTANT, CrewMember, LIBRARIAN};
 
 choice! {
     pub enum Effort {
@@ -33,7 +33,7 @@ input! {
         /// lifeos tools it may use (names from the tool list). Omit for every tool.
         #[serde(default)]
         pub tools: Vec<String>,
-        /// External MCP connection names this member may use.
+        /// Connection names this member may use: external MCP servers, and the built-in `google` and `desktop`.
         #[serde(default)]
         pub connections: Vec<String>,
     }
@@ -75,7 +75,8 @@ impl Life {
         check_tools(&m.tools)?;
         self.check_connections(&m.connections)?;
         let name = m.name.trim().to_string();
-        if name.is_empty() || name.eq_ignore_ascii_case(ASSISTANT) {
+        let plain: String = name.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
+        if name.is_empty() || plain == ASSISTANT || plain == LIBRARIAN {
             bail!("pick another name");
         }
         let meta = Frontmatter {

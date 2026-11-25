@@ -1,0 +1,11 @@
+[package]
+name = "lifeos-plugin-wire"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+grant = { path = "../grant" }
+link = { path = "../link" }
+model = { path = "../model" }
+serde = { version = "1", features = ["derive"] }

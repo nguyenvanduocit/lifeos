@@ -29,6 +29,15 @@ input! {
 }
 
 input! {
+    pub struct UpdateDocument {
+        pub id: String,
+        pub title: Option<String>,
+        pub body: Option<String>,
+        pub tags: Option<Vec<String>>,
+    }
+}
+
+input! {
     pub struct Recent {
         /// How many. Defaults to 10.
         pub limit: Option<u32>,
@@ -139,6 +148,26 @@ impl Life {
             ..Default::default()
         };
         Ok(summary(&self.create(Kind::Note, meta, n.body)?))
+    }
+
+    pub fn update_document(&self, input: UpdateDocument) -> Result<DocSummary> {
+        let mut doc = self.resolve_doc(&input.id)?;
+        anyhow::ensure!(
+            matches!(doc.kind, Kind::Note | Kind::Journal | Kind::Review),
+            "Use the entity's own update tool for {}",
+            doc.kind.as_str()
+        );
+        if let Some(title) = input.title {
+            doc.meta.title = title.trim().to_owned();
+        }
+        if let Some(body) = input.body {
+            doc.body = body;
+        }
+        if let Some(tags) = input.tags {
+            doc.meta.tags = tags;
+        }
+        self.save(&doc)?;
+        Ok(summary(&doc))
     }
 
     /// Most recently changed first.

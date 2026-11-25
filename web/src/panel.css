@@ -1,0 +1,225 @@
+/* The Assistant panel keeps remit's structure (docs/adr/0001): its type, rhythms and token names, copied from remit's
+   web/src/style.css and theme.css, now drawn from LifeOS's palette so it matches the pages in light and dark. The names
+   live only under `.remit` (the panel's root, and what it portals out: tooltips). Tailwind's names for them (bg-panel2, text-mut, border-line2) are
+   declared here once; the ones lifeos's pages share (bg-panel, border-line, text-violet-text) take remit's values inside
+   `.remit` because they read the same variables. */
+
+/* reka's states as shadcn-vue names them (shadcn-vue/tailwind.css), for the panel's ui pieces; and `remit:`, what remit's
+   pieces wore under its .dark (the panel now follows the system, so these read the same tokens in both schemes). */
+@custom-variant remit (&:where(.remit, .remit *));
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-active {
+  &:where([data-state="active"]),
+  &:where([data-active]:not([data-active="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
+  }
+}
+
+@utility mono {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+/* a small section label: PARAMETERS, RESULT */
+@utility caps {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+/* a small control the pointer can hit: its box reaches 24px each way (WCAG 2.5.8) */
+@utility hit {
+  position: relative;
+  &::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 24px);
+    height: max(100%, 24px);
+    transform: translate(-50%, -50%);
+  }
+}
+/* a bit of code inside a line of text */
+@utility code-chip {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--panel3);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+/* what the owner wrote, on a raised surface with the tail at his side */
+@utility owner-bubble {
+  border: 1px solid var(--line2);
+  border-radius: 12px 12px 3px 12px;
+  background: var(--panel3);
+}
+
+@theme inline {
+  --color-bg2: var(--bg2);
+  --color-line2: var(--line2);
+  --color-line3: var(--line3);
+  --color-rule: var(--rule);
+  --color-text: var(--text);
+  --color-text2: var(--text2);
+  --color-mut: var(--mut);
+  --color-faint: var(--faint);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-success: var(--success);
+  --color-info: var(--info);
+  --color-blue: var(--blue);
+  --color-green: var(--green);
+  --color-amber: var(--amber);
+  --color-red: var(--red);
+  --color-cyan: var(--cyan);
+  --color-sand: var(--sand);
+  --color-orange: var(--orange);
+  --color-blue-tint: var(--blue-tint);
+  --color-blue-bg: var(--blue-bg);
+  --color-blue-line: var(--blue-line);
+  --color-blue-text: var(--blue-text);
+  --color-blue-hi: var(--blue-hi);
+  --color-green-tint: var(--green-tint);
+  --color-green-bg: var(--green-bg);
+  --color-green-line: var(--green-line);
+  --color-green-text: var(--green-text);
+  --color-orange-tint: var(--orange-tint);
+  --color-orange-bg: var(--orange-bg);
+  --color-orange-line: var(--orange-line);
+  --color-orange-text: var(--orange-text);
+  --color-amber-bg: var(--amber-bg);
+  --color-amber-line: var(--amber-line);
+  --color-red-tint: var(--red-tint);
+  --color-red-bg: var(--red-bg);
+  --color-red-bg2: var(--red-bg2);
+  --color-red-line: var(--red-line);
+  --color-red-text: var(--red-text);
+  --color-cyan-tint: var(--cyan-tint);
+  --color-cyan-bg: var(--cyan-bg);
+  --color-cyan-line: var(--cyan-line);
+  --color-cyan-text: var(--cyan-text);
+  --color-violet-bg: var(--violet-bg);
+  --color-sand-tint: var(--sand-tint);
+  --color-sand-bg: var(--sand-bg);
+  --color-sand-line: var(--sand-line);
+  --color-veil: var(--veil);
+  --color-veil2: var(--veil2);
+  --spacing-control-xs: var(--control-xs);
+  --spacing-control-sm: var(--control-sm);
+  --spacing-control-md: var(--control-md);
+  --spacing-control-lg: var(--control-lg);
+  --spacing-control-pad-xs: var(--control-pad-xs);
+  --spacing-control-pad-sm: var(--control-pad-sm);
+  --spacing-control-pad-md: var(--control-pad-md);
+  --spacing-control-pad-lg: var(--control-pad-lg);
+  --text-control-sm: var(--control-text-sm);
+  --text-control-md: var(--control-text-md);
+  --radius-control-sm: var(--control-radius-sm);
+  --radius-control: var(--control-radius);
+  --spacing-icon: var(--space-icon);
+  --spacing-stack: var(--space-stack);
+  --spacing-card: var(--space-card);
+  --spacing-pane: var(--space-pane);
+  --text-read: var(--size-read);
+  --text-read--line-height: var(--leading-read);
+  --text-meta: var(--size-meta);
+}
+
+.remit {
+  /* The panel wears LifeOS's own palette (style.css), light or dark as the system is: the page's surfaces, lines and
+     inks (--bg, --panel…, --line…, --ink…) reach it unchanged, and remit's names below are drawn from them, so its
+     pieces keep their structure. Accent washes mix the accent into the panel, so they hold in both schemes. */
+  --bg2: var(--panel2);
+  --line3: var(--ink3); --rule: var(--line);
+  --text: var(--ink); --text2: var(--ink2); --mut: var(--ink3); --faint: color-mix(in oklab, var(--ink3) 80%, var(--panel));
+  --well: color-mix(in oklab, var(--bg) 70%, var(--panel3));
+  --blue: var(--info); --green: var(--good); --amber: var(--warning); --red: var(--critical); --cyan: var(--t-talk);
+  --pink: var(--t-memory); --sand: var(--t-money); --orange: var(--serious);
+  --meter-on: var(--ink2);
+  --blue-tint: color-mix(in oklab, var(--info) 13%, transparent); --blue-bg: color-mix(in oklab, var(--info) 12%, var(--panel));
+  --blue-line: color-mix(in oklab, var(--info) 40%, var(--panel)); --blue-text: color-mix(in oklab, var(--info) 80%, var(--ink)); --blue-hi: var(--info);
+  --cyan-tint: color-mix(in oklab, var(--t-talk) 13%, transparent); --cyan-bg: color-mix(in oklab, var(--t-talk) 12%, var(--panel));
+  --cyan-line: color-mix(in oklab, var(--t-talk) 40%, var(--panel)); --cyan-text: color-mix(in oklab, var(--t-talk) 75%, var(--ink));
+  --green-tint: color-mix(in oklab, var(--good) 13%, transparent); --green-bg: color-mix(in oklab, var(--good) 12%, var(--panel));
+  --green-line: color-mix(in oklab, var(--good) 40%, var(--panel)); --green-text: color-mix(in oklab, var(--good) 80%, var(--ink));
+  --orange-tint: color-mix(in oklab, var(--serious) 14%, transparent); --orange-bg: color-mix(in oklab, var(--serious) 12%, var(--panel));
+  --orange-line: color-mix(in oklab, var(--serious) 40%, var(--panel)); --orange-text: color-mix(in oklab, var(--serious) 80%, var(--ink));
+  --amber-bg: color-mix(in oklab, var(--warning) 12%, var(--panel)); --amber-line: color-mix(in oklab, var(--warning) 40%, var(--panel));
+  --red-tint: color-mix(in oklab, var(--critical) 14%, transparent); --red-bg: color-mix(in oklab, var(--critical) 10%, var(--panel));
+  --red-bg2: color-mix(in oklab, var(--critical) 16%, var(--panel)); --red-line: color-mix(in oklab, var(--critical) 40%, var(--panel));
+  --red-text: color-mix(in oklab, var(--critical) 80%, var(--ink));
+  --violet-bg: color-mix(in oklab, var(--violet) 16%, var(--panel));
+  --sand-tint: color-mix(in oklab, var(--t-money) 16%, transparent); --sand-bg: color-mix(in oklab, var(--t-money) 10%, var(--panel));
+  --sand-line: color-mix(in oklab, var(--t-money) 40%, var(--panel));
+  --veil: color-mix(in oklab, var(--ink) 6%, transparent); --veil2: color-mix(in oklab, var(--ink) 9%, transparent);
+  --veil3: color-mix(in oklab, var(--ink) 18%, transparent);
+  --on-primary: var(--panel);
+  --shade: rgba(0,0,0,.18); --shade2: rgba(0,0,0,.12);
+  --shadow-card: 0 0 0 .5px var(--veil2), 0 1px 2px var(--shade2);
+  --shadow-pressed: inset 0 0 0 1px var(--veil), inset 0 2px 4px var(--shade);
+  --control-xs: 24px; --control-sm: 28px; --control-md: 32px; --control-lg: 36px;
+  --control-pad-xs: 8px; --control-pad-sm: 10px; --control-pad-md: 12px; --control-pad-lg: 14px;
+  --control-text-sm: 12px; --control-text-md: 13px;
+  --control-radius-sm: 8px; --control-radius: 10px;
+  --size-read: 14px; --leading-read: 1.6; --size-body: 13.5px; --leading-ui: 1.45; --size-meta: 12px;
+  --space-icon: 6px; --space-stack: 8px; --space-card: 10px; --space-pane: 16px;
+  --dur-fast: 120ms;
+  --sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* shadcn's names, on LifeOS's palette: the primary action is ink, as on the pages */
+  --background: var(--bg);
+  --foreground: var(--ink);
+  --popover: var(--panel);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--panel);
+  --muted: var(--panel3);
+  --muted-foreground: var(--ink3);
+  --accent: var(--panel3);
+  --accent-foreground: var(--ink);
+  --input: var(--line2);
+  --ring: var(--ink3);
+  --success: var(--good);
+}
+
+@layer base {
+  /* The panel's body type, under the utilities a component sets on its root. */
+  .remit {
+    color: var(--text);
+    font: var(--size-body)/var(--leading-ui) var(--sans);
+    font-feature-settings: "cv11", "ss01";
+  }
+  .remit,
+  .remit * {
+    border-color: var(--line);
+    outline-color: color-mix(in oklab, var(--ring) 50%, transparent);
+  }
+  .remit :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}

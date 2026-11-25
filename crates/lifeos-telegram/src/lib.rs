@@ -4,11 +4,11 @@
 //! someone's whole life, so an unknown chat gets only its own id back (to
 //! help setup) and nothing else.
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use lifeos_agent::{AgentConfig, LifeAgent, SharedLife};
+use lifeos_agent::{Agents, AgentsConfig, SharedLife, owner};
+use lifeos_wire::ASSISTANT;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -17,7 +17,7 @@ const MAX_MESSAGE_CHARS: usize = 4000; // Telegram's limit is 4096
 pub struct BotConfig {
     pub token: String,
     pub allowed_chats: Vec<i64>,
-    pub agent: AgentConfig,
+    pub agent: AgentsConfig,
 }
 
 #[derive(Deserialize)]
@@ -82,6 +82,7 @@ impl Bot {
 }
 
 pub async fn run(life: SharedLife, config: BotConfig) -> Result<()> {
+    let agents = Agents::start(life.clone(), config.agent.clone()).await?;
     if config.allowed_chats.is_empty() {
         tracing::warn!("no allowed chats: the bot will only tell each chat its id");
     }
@@ -91,7 +92,6 @@ pub async fn run(life: SharedLife, config: BotConfig) -> Result<()> {
             .build()?,
         base: format!("https://api.telegram.org/bot{}", config.token),
     };
-    let mut agents: HashMap<i64, LifeAgent> = HashMap::new();
     let mut offset = 0i64;
     tracing::info!("lifeos telegram bot is polling");
 
@@ -110,7 +110,7 @@ pub async fn run(life: SharedLife, config: BotConfig) -> Result<()> {
         for update in updates {
             offset = update.update_id + 1;
             let Some(Message { chat, text: Some(text) }) = update.message else { continue };
-            if let Err(err) = handle(&bot, &life, &config, &mut agents, chat.id, text.trim()).await {
+            if let Err(err) = handle(&bot, &agents, &config, chat.id, text.trim()).await {
                 tracing::warn!("chat {}: {err:#}", chat.id);
                 let _ = bot.send(chat.id, &format!("Lỗi: {err:#}")).await;
             }
@@ -118,18 +118,8 @@ pub async fn run(life: SharedLife, config: BotConfig) -> Result<()> {
     }
 }
 
-fn session_key(chat_id: i64) -> String {
-    format!("telegram.session.{chat_id}")
-}
-
-async fn handle(
-    bot: &Bot,
-    life: &SharedLife,
-    config: &BotConfig,
-    agents: &mut HashMap<i64, LifeAgent>,
-    chat_id: i64,
-    text: &str,
-) -> Result<()> {
+/// One message from an allowed chat, to the Assistant: the same conversation the web app shows.
+async fn handle(bot: &Bot, agents: &Agents, config: &BotConfig, chat_id: i64, text: &str) -> Result<()> {
     if !config.allowed_chats.contains(&chat_id) {
         return bot
             .send(
@@ -140,35 +130,18 @@ async fn handle(
     }
     match text {
         "/new" => {
-            if let Some(agent) = agents.remove(&chat_id) {
-                agent.close().await;
-            }
-            life.lock().expect("life lock").kv_set(&session_key(chat_id), "")?;
-            return bot.send(chat_id, "Đã bắt đầu cuộc trò chuyện mới.").await;
+            agents.restart(ASSISTANT).await?;
+            return bot.send(chat_id, "Đã bắt đầu phiên mới.").await;
         }
         "/start" => {
             return bot
-                .send(chat_id, "Chào bạn, mình là lifeos. Cứ kể cho mình nghe hôm nay của bạn, hoặc hỏi nên làm gì tiếp theo.\n/new: bắt đầu cuộc trò chuyện mới")
+                .send(chat_id, "Chào bạn, mình là lifeos. Cứ kể cho mình nghe hôm nay của bạn, hoặc hỏi nên làm gì tiếp theo.\n/new: bắt đầu phiên mới")
                 .await;
         }
         _ => {}
     }
-
-    let agent = match agents.entry(chat_id) {
-        std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-        std::collections::hash_map::Entry::Vacant(e) => {
-            let resume = life
-                .lock()
-                .expect("life lock")
-                .kv_get(&session_key(chat_id))?
-                .filter(|s| !s.is_empty());
-            let agent_config = AgentConfig { resume, ..config.agent.clone() };
-            e.insert(LifeAgent::spawn(life.clone(), agent_config).await?)
-        }
-    };
-
     bot.typing(chat_id).await;
-    let ask = agent.ask(text, |_| {});
+    let ask = agents.ask(ASSISTANT, text, owner());
     tokio::pin!(ask);
     let reply = loop {
         // Telegram's typing indicator lasts ~5 s; keep it up while the agent works.
@@ -177,10 +150,7 @@ async fn handle(
             _ = tokio::time::sleep(Duration::from_secs(4)) => bot.typing(chat_id).await,
         }
     };
-    if let Some(id) = agent.session_id() {
-        life.lock().expect("life lock").kv_set(&session_key(chat_id), &id)?;
-    }
-    let text = lifeos_agent::reply_text(&reply);
+    let text = reply.shown();
     let text = if text.trim().is_empty() { "(không có trả lời)" } else { text.as_str() };
     bot.send(chat_id, text).await
 }

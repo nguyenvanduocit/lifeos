@@ -1,19 +1,18 @@
 //! `lifeos`: one binary for every interface.
 
-use std::io::Write as _;
+use std::io::{IsTerminal, Read as _, Write as _};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use lifeos_agent::{AgentConfig, Effort, LifeAgent, SharedLife, reply_text};
-use lifeos_core::life::Step;
+use lifeos_agent::{Agents, AgentsConfig, Notice, SharedLife, owner};
+use lifeos_wire::{ASSISTANT, Activity, EventKind, ToolState};
 use lifeos_core::Life;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 const PROFILE_TEMPLATE: &str = include_str!("profile_template.md");
-const CLI_SESSION_KEY: &str = "cli.session";
 
 #[derive(Parser)]
 #[command(name = "lifeos", version, about = "AI agent quản trị cuộc đời")]
@@ -39,14 +38,14 @@ enum EffortArg {
     Max,
 }
 
-impl From<EffortArg> for Effort {
-    fn from(e: EffortArg) -> Effort {
-        match e {
-            EffortArg::Low => Effort::Low,
-            EffortArg::Medium => Effort::Medium,
-            EffortArg::High => Effort::High,
-            EffortArg::Xhigh => Effort::Xhigh,
-            EffortArg::Max => Effort::Max,
+impl EffortArg {
+    fn as_str(self) -> &'static str {
+        match self {
+            EffortArg::Low => "low",
+            EffortArg::Medium => "medium",
+            EffortArg::High => "high",
+            EffortArg::Xhigh => "xhigh",
+            EffortArg::Max => "max",
         }
     }
 }
@@ -59,12 +58,9 @@ enum Command {
     Today,
     /// Rebuild the search index from the Markdown files.
     Reindex,
-    /// Talk with the agent in the terminal.
-    Chat {
-        /// Continue the last terminal conversation.
-        #[arg(long, short)]
-        resume: bool,
-    },
+    /// Talk with the Assistant in the terminal: the same conversation the web
+    /// app and Telegram show. `/new` starts a new session.
+    Chat,
     /// Ask one thing and print the answer.
     Ask { message: Vec<String> },
     /// Serve the tools over MCP on stdio (`claude mcp add lifeos -- lifeos mcp`).
@@ -89,6 +85,20 @@ enum Command {
         #[arg(long, env = "LIFEOS_BRIEF_AT")]
         brief_at: Option<chrono::NaiveTime>,
     },
+    /// Queue a routine by id.
+    RunRoutine { id: String },
+    /// Generate a new bearer token for POST /hooks/<id>.
+    HookKey { id: String },
+    /// The Vault's keys: what connections send as `${NAME}`. Logins and contacts are kept in Settings › Vault.
+    Vault {
+        #[command(subcommand)]
+        command: VaultCommand,
+    },
+    /// Configure an external MCP server locally.
+    Connection {
+        #[command(subcommand)]
+        command: ConnectionCommand,
+    },
     /// Run the Telegram bot (long polling).
     Telegram {
         #[arg(long, env = "LIFEOS_TELEGRAM_TOKEN", hide_env_values = true)]
@@ -99,8 +109,31 @@ enum Command {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+#[derive(Subcommand)]
+enum VaultCommand {
+    /// Save a key's value, read from stdin. A new key is the Assistant's; share it with others in Settings › Vault.
+    Set { name: String },
+    /// Delete a key.
+    Remove { name: String },
+    /// List what the Vault holds, never a value.
+    List,
+}
+
+#[derive(Subcommand)]
+enum ConnectionCommand {
+    /// Read an MCP config object (url/headers or command/args/env) from stdin.
+    Set { name: String },
+    /// Remove a connection and every crew member's grant of it.
+    Remove { name: String },
+}
+
+fn main() -> Result<()> {
+    // Before any thread starts: this binary is also the jail's helper, which sets an agent's sandbox up.
+    jail::init();
+    tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(run())
+}
+
+async fn run() -> Result<()> {
     // Logs go to stderr: stdout belongs to MCP in `lifeos mcp`.
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
@@ -113,9 +146,9 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     let home = cli.home.clone().unwrap_or_else(lifeos_core::default_home);
-    let agent_config = AgentConfig {
+    let agent_config = AgentsConfig {
         model: cli.model.clone(),
-        effort: cli.effort.map(Into::into),
+        effort: cli.effort.map(|e| e.as_str().to_owned()),
         ..Default::default()
     };
     let open = || Life::open(&home).with_context(|| format!("cannot open lifeos home {}", home.display()));
@@ -133,14 +166,44 @@ async fn main() -> Result<()> {
             println!("indexed {} documents", stats.indexed);
             Ok(())
         }
-        Command::Chat { resume } => chat(shared(open()?), agent_config, resume).await,
+        Command::Chat => chat(shared(open()?), agent_config).await,
         Command::Ask { message } => {
-            let agent = LifeAgent::spawn(shared(open()?), agent_config).await?;
-            let reply = agent.ask(&message.join(" "), |_| {}).await;
-            agent.close().await;
-            println!("{}", reply_text(&reply?));
+            let agents = Agents::start(shared(open()?), agent_config).await?;
+            let reply = agents.ask(ASSISTANT, &message.join(" "), owner()).await;
+            agents.close();
+            println!("{}", reply?.shown());
             Ok(())
         }
+        Command::RunRoutine { id } => {
+            println!("{}", open()?.queue_manual(&id)?.id);
+            Ok(())
+        }
+        Command::HookKey { id } => {
+            println!("{}", open()?.rotate_hook_key(&id)?);
+            Ok(())
+        }
+        Command::Vault { command } => match command {
+            VaultCommand::Set { name } => {
+                anyhow::ensure!(!std::io::stdin().is_terminal(), "pipe the key's value to stdin");
+                let mut value = String::new();
+                std::io::stdin().take(65538).read_to_string(&mut value)?;
+                open()?.set_vault_key(&name, value.trim_end_matches(['\r', '\n']))
+            }
+            VaultCommand::Remove { name } => open()?.remove_vault_key(&name),
+            VaultCommand::List => {
+                for item in open()?.vault_view()?.items {
+                    let what = item.key_name.clone().or(item.website.clone()).unwrap_or_default();
+                    let who = if item.all_agents { "every agent".to_owned() } else if item.agents.is_empty() { "no agent".to_owned() } else { item.agents.join(", ") };
+                    println!("{:?}\t{}\t{}\t{}", item.kind, item.title, what, who);
+                }
+                Ok(())
+            }
+        },
+        Command::Connection { command: ConnectionCommand::Set { name } } => {
+            let config = serde_json::from_reader(std::io::stdin().lock()).context("invalid MCP configuration")?;
+            open()?.set_custom_connection(&name, &config)
+        }
+        Command::Connection { command: ConnectionCommand::Remove { name } } => open()?.remove_connection(&name),
         Command::Mcp => lifeos_mcp::serve_stdio(&mut open()?),
         Command::Web { host, port, link_host, link_port, brief_at } => {
             let config = lifeos_web::WebConfig {
@@ -177,12 +240,35 @@ fn init(home: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-async fn chat(life: SharedLife, mut config: AgentConfig, resume: bool) -> Result<()> {
-    if resume {
-        config.resume = life.lock().expect("life lock").kv_get(CLI_SESSION_KEY)?.filter(|s| !s.is_empty());
-    }
-    let agent = LifeAgent::spawn(life.clone(), config).await?;
-    eprintln!("lifeos — gõ tin nhắn, Ctrl-D để thoát.");
+async fn chat(life: SharedLife, config: AgentsConfig) -> Result<()> {
+    let agents = Agents::start(life, config).await?;
+    let mut notices = agents.subscribe();
+    // What the Assistant does, as it does it: its words on stdout, its tools on stderr.
+    tokio::spawn(async move {
+        while let Ok(n) = notices.recv().await {
+            match n {
+                Notice::Delta(d) if d.card == ASSISTANT && d.kind == EventKind::Message => {
+                    print!("{}", d.text);
+                    let _ = std::io::stdout().flush();
+                }
+                Notice::Event(e) if e.event.card == ASSISTANT && e.event.rev == 1 && e.event.kind == EventKind::Message => {
+                    print!("{}", e.event.text);
+                    let _ = std::io::stdout().flush();
+                }
+                Notice::Event(e) if e.event.card == ASSISTANT => {
+                    if let Some(Activity::Tool { name, summary, status: ToolState::Failed, .. }) = &e.activity {
+                        eprintln!("  ✗ {name} {summary}");
+                    } else if let Some(Activity::Tool { name, status: ToolState::Running, .. }) = &e.activity
+                        && e.event.rev == 1
+                    {
+                        eprintln!("  · {name}");
+                    }
+                }
+                _ => {}
+            }
+        }
+    });
+    eprintln!("lifeos — gõ tin nhắn, /new để bắt đầu phiên mới, Ctrl-D để thoát.");
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     loop {
         eprint!("\n› ");
@@ -191,30 +277,21 @@ async fn chat(life: SharedLife, mut config: AgentConfig, resume: bool) -> Result
         if line.is_empty() {
             continue;
         }
-        let result = agent
-            .ask(line, |step| match step {
-                Step::Text(t) => {
-                    print!("{t}");
-                    let _ = std::io::stdout().flush();
-                }
-                Step::Tool(call) => eprintln!("  · {}", call.name),
-                Step::ToolDone(o) if o.failed => eprintln!("  ✗ {}", o.output.lines().next().unwrap_or_default()),
-                _ => {}
-            })
-            .await;
-        match result {
-            Ok(done) => {
+        if line == "/new" {
+            agents.restart(ASSISTANT).await?;
+            eprintln!("Đã bắt đầu phiên mới.");
+            continue;
+        }
+        match agents.ask(ASSISTANT, line, owner()).await {
+            Ok(answer) => {
                 println!();
-                if let Some(err) = done.error {
+                if let Some(err) = answer.error {
                     eprintln!("lỗi: {err}");
-                }
-                if let Some(id) = agent.session_id() {
-                    life.lock().expect("life lock").kv_set(CLI_SESSION_KEY, &id)?;
                 }
             }
             Err(err) => eprintln!("lỗi: {err:#}"),
         }
     }
-    agent.close().await;
+    agents.close();
     Ok(())
 }

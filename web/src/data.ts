@@ -7,6 +7,7 @@ export interface Reading<T> {
   data: Ref<T | undefined>
   error: Ref<string>
   loading: Ref<boolean>
+  retry: () => void
 }
 
 export function useRead<T extends ReadTool>(
@@ -17,14 +18,17 @@ export function useRead<T extends ReadTool>(
   const error = ref('')
   const loading = ref(true)
   const key = computed(() => JSON.stringify(input() ?? {}))
+  const attempt = ref(0)
   let seq = 0
   watch(
-    [key, revision],
-    async () => {
+    [key, revision, attempt],
+    async ([inputKey], [previousKey]) => {
+      if (inputKey !== previousKey) data.value = undefined
+      error.value = ''
       const mine = ++seq
       loading.value = true
       try {
-        const out = await read(tool, JSON.parse(key.value))
+        const out = await read(tool, JSON.parse(inputKey))
         if (mine === seq) {
           data.value = out
           error.value = ''
@@ -37,5 +41,5 @@ export function useRead<T extends ReadTool>(
     },
     { immediate: true },
   )
-  return { data, error, loading }
+  return { data, error, loading, retry: () => { attempt.value++ } }
 }

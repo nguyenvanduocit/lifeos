@@ -11,6 +11,10 @@ export type Routine = { id: string, title: string,
  */
 agent: string, 
 /**
+ * The script in `workflows/` it runs in place of asking its agent.
+ */
+workflow: string | null, 
+/**
  * What to do each time, Markdown.
  */
 instructions: string, 
@@ -31,9 +35,9 @@ on: Array<string>,
  */
 hook: boolean, 
 /**
- * The webhook's key, when `hook`.
+ * A webhook key has been set locally.
  */
-hook_key: string | null, 
+hook_ready: boolean, 
 /**
  * active | paused | done (a one-time routine that ran)
  */

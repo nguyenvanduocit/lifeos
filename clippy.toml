@@ -1,0 +1,11 @@
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+
+# One owner for starting a child process (taken from remit): start it with procgroup::command, its environment from
+# childenv::of. A call that is the owner says so with #[expect(clippy::disallowed_methods, reason = "...")].
+disallowed-methods = [
+    { path = "std::process::Command::new", reason = "start a child with procgroup::command, its environment from childenv::of" },
+    { path = "tokio::process::Command::new", reason = "start a child with procgroup::command, its environment from childenv::of", allow-invalid = true },
+]
