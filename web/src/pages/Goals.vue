@@ -14,8 +14,8 @@ const rest = computed(() => data.value?.filter((g) => g.summary.status !== 'acti
 
 <template>
   <PageHead title="Mục tiêu" sub="Mỗi mục tiêu có lý do, tiến độ và các việc phục vụ nó.">
-    <AskChip words="Mình muốn đặt mục tiêu: " label="Mục tiêu mới" />
-    <AskChip words="Xem lại các mục tiêu và cập nhật tiến độ giúp mình." label="Rà soát" now />
+    <AskChip size="sm" primary words="Mình muốn đặt mục tiêu: " label="Mục tiêu mới" />
+    <AskChip size="sm" words="Xem lại các mục tiêu và cập nhật tiến độ giúp mình." label="Rà soát" now />
   </PageHead>
   <div v-if="data" class="grid gap-4 md:grid-cols-2">
     <Section title="Đang theo đuổi" :count="active.length" class="md:col-span-2">

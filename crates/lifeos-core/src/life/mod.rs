@@ -6,6 +6,8 @@
 
 pub mod chats;
 pub mod crew;
+pub mod connections;
+pub mod routines;
 pub mod dashboard;
 pub mod goals;
 pub mod habits;
@@ -24,7 +26,7 @@ use std::time::UNIX_EPOCH;
 
 use anyhow::{Context, Result, bail};
 use chrono::{Local, NaiveDate};
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use rusqlite::{Connection as Sqlite, OptionalExtension, Row, params};
 use serde::Serialize;
 
 use crate::db;
@@ -33,7 +35,7 @@ pub use lifeos_wire::*;
 
 pub struct Life {
     vault: Vault,
-    conn: Connection,
+    conn: Sqlite,
 }
 
 #[derive(Debug, Default, Clone, Copy, Serialize)]

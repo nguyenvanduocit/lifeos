@@ -24,8 +24,8 @@ const groups = computed(() => {
 
 <template>
   <PageHead title="Mối quan hệ" sub="Ai cần liên lạc, sinh nhật sắp tới, và những gì lifeos nhớ về từng người.">
-    <AskChip words="Thêm người: " label="Thêm người" />
-    <AskChip words="Vừa gặp " label="Ghi lần gặp" />
+    <AskChip size="sm" primary words="Thêm người: " label="Thêm người" />
+    <AskChip size="sm" words="Vừa gặp " label="Ghi lần gặp" />
   </PageHead>
   <div v-if="data" class="grid gap-4 md:grid-cols-2">
     <Section title="Nên liên lạc" :count="due.length">
@@ -39,6 +39,6 @@ const groups = computed(() => {
     <Section v-for="[rel, people] in groups" :key="rel" :title="rel" :count="people.length" class="first-letter:uppercase">
       <ul class="normal-case"><PersonRow v-for="p in people" :key="p.id" :person="p" /></ul>
     </Section>
-    <Empty v-if="!data.length" text="lifeos chưa biết ai trong đời bạn." words="Thêm người: " label="Thêm người đầu tiên" />
+    <Empty v-if="!data.length" class="rounded-2xl border border-line bg-panel p-5 md:col-span-2" text="lifeos chưa biết ai trong đời bạn." />
   </div>
 </template>

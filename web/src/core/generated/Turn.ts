@@ -12,4 +12,9 @@ ask: string,
 /**
  * When it was asked, `YYYY-MM-DD HH:MM`.
  */
-at: string, reply: ChatDone, };
+at: string, reply: ChatDone, 
+/**
+ * Who asked when it was not the user: the routine that ran it, e.g.
+ * `Bản tin buổi sáng · theo lịch`.
+ */
+source: string | null, };

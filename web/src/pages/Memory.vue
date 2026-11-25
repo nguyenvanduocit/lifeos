@@ -15,8 +15,8 @@ const names = computed(() => Object.fromEntries([[ASSISTANT, 'Assistant'], ...(c
 
 <template>
   <PageHead title="Memory" sub="Những gì agent nhớ về bạn qua mọi cuộc trò chuyện. Trước mỗi tin nhắn, lifeos tự gợi lại những điều liên quan.">
-    <AskChip words="Hãy nhớ rằng " label="Dạy agent một điều" />
-    <AskChip words="Rà lại memory: gộp những điều trùng, quên những điều đã cũ." label="Dọn memory" now />
+    <AskChip size="sm" primary words="Hãy nhớ rằng " label="Dạy agent một điều" />
+    <AskChip size="sm" words="Rà lại memory: gộp những điều trùng, quên những điều đã cũ." label="Dọn memory" now />
   </PageHead>
   <div class="mb-4 flex flex-wrap gap-1 text-xs" role="group" aria-label="Của ai">
     <button

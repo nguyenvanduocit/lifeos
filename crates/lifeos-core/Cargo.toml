@@ -7,6 +7,11 @@ license.workspace = true
 [dependencies]
 anyhow = "1.0.105"
 chrono = { version = "0.4.45", features = ["serde"] }
+croner = "4.0.3"
+getrandom = "0.4.3"
+sha2 = "0.11.1"
+subtle = "2.6.1"
+url = "2.5.9"
 deunicode = "1.6.2"
 dirs = "7.0.0"
 lifeos-wire = { version = "0.1.0", path = "../lifeos-wire" }
@@ -18,8 +23,6 @@ serde_yaml = "0.9.34"
 tracing = "0.1.44"
 ts-rs = { version = "12.0.1", features = ["chrono-impl"], optional = true }
 walkdir = "2.5.1"
-
-[dev-dependencies]
 tempfile = "3.27.0"
 
 

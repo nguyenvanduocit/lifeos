@@ -24,6 +24,7 @@ pub fn folder(kind: Kind) -> &'static str {
         Kind::Note => "notes",
         Kind::Review => "reviews",
         Kind::Crew => "crew",
+        Kind::Routine => "routines",
     }
 }
 
@@ -70,6 +71,24 @@ pub struct Frontmatter {
     /// Crew member: the tools it may use; empty means every lifeos tool.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<String>,
+    /// Crew member: the connections (outside MCP servers) it may use.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub connections: Vec<String>,
+    /// Routine: who does it, `assistant` or a crew member id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    /// Routine: repeats on these five cron fields, local time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cron: Option<String>,
+    /// Routine: runs once at `YYYY-MM-DD HH:MM`, local time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<String>,
+    /// Routine: runs after any of these lifeos write tools.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub on: Vec<String>,
+    /// Routine: runs when its webhook is posted.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hook: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

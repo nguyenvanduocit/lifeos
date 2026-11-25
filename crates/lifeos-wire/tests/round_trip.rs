@@ -42,7 +42,13 @@ fn calls_and_replies() {
     let done = ChatDone { steps, ms: 1200, cost_usd: None, error: None };
     round_trip(Reply::ChatDone(done.clone()));
     round_trip(Reply::ChatDone(ChatDone { cost_usd: Some(0.01), error: Some("dừng".into()), ..done.clone() }));
-    round_trip(Reply::History(vec![Turn { ask: "Thêm việc".into(), at: "2026-11-25 09:00".into(), reply: done }]));
+    round_trip(Reply::History(vec![Turn { ask: "Thêm việc".into(), at: "2026-11-25 09:00".into(), reply: done.clone(), source: None }]));
+    round_trip(Reply::History(vec![Turn {
+        ask: "Viết bản tin".into(),
+        at: "2026-11-26 06:30".into(),
+        reply: done,
+        source: Some("Bản tin buổi sáng · theo lịch".into()),
+    }]));
     round_trip(Reply::Changed(u64::MAX));
     round_trip(Reply::Done);
     round_trip(Reply::Failed("lỗi".into()));
@@ -80,4 +86,63 @@ fn oversized_length_is_refused() {
     let mut reader = Reader::default();
     reader.push(&u32::MAX.to_be_bytes());
     assert!(matches!(reader.next_frame::<Call>(), Err(FrameError::TooLarge(_))));
+}
+
+fn json_round_trip<T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug>(value: T) {
+    let json = serde_json::to_string(&value).unwrap();
+    assert_eq!(serde_json::from_str::<T>(&json).unwrap(), value);
+}
+
+#[test]
+fn routines_and_connections_survive_json() {
+    let run = Run {
+        id: 1,
+        routine: "ban-tin".into(),
+        title: "Bản tin".into(),
+        agent: ASSISTANT.into(),
+        trigger: "schedule".into(),
+        detail: None,
+        queued: "2026-11-26 06:30:00".into(),
+        started: Some("2026-11-26 06:30:02".into()),
+        finished: None,
+        ms: Some(4000),
+        error: None,
+        reply: Some("Đã viết".into()),
+    };
+    json_round_trip(Routine {
+        id: "ban-tin".into(),
+        title: "Bản tin".into(),
+        agent: ASSISTANT.into(),
+        instructions: "Viết bản tin.".into(),
+        cron: Some("30 6 * * *".into()),
+        at: None,
+        on: vec!["add_transaction".into()],
+        hook: true,
+        hook_ready: true,
+        status: "active".into(),
+        next: Some("2026-11-27 06:30".into()),
+        last: Some(run.clone()),
+        runs: 3,
+    });
+    json_round_trip(run);
+    json_round_trip(Connections {
+        connections: vec![Connection {
+            name: "github".into(),
+            preset: Some("github".into()),
+            transport: "http".into(),
+            target: "https://api.githubcopilot.com/mcp/".into(),
+            enabled: true,
+            missing: vec!["GITHUB_TOKEN".into()],
+            members: vec![],
+        }],
+        presets: vec![Preset {
+            id: "github".into(),
+            name: "GitHub".into(),
+            description: "Issues".into(),
+            setup: "1. Tạo token".into(),
+            secrets: vec!["GITHUB_TOKEN".into()],
+            added: true,
+        }],
+        secrets: vec!["GITHUB_TOKEN".into()],
+    });
 }

@@ -187,7 +187,7 @@ pub(crate) async fn chat(state: &AppState, agent: &str, message: &str, mut send:
         if let Some(id) = session {
             life.set_session_of(agent, &id)?;
         }
-        life.save_turn(agent, &Turn { ask: message.to_string(), at, reply: done.clone() })?;
+        life.save_turn(agent, &Turn { ask: message.to_string(), at, reply: done.clone(), source: None })?;
     }
     state.bump();
     Ok(done)

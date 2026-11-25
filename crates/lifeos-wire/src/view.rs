@@ -22,11 +22,21 @@ pub enum Kind {
     Review,
     /// A crew member: an agent with its own role and instructions.
     Crew,
+    /// A routine: words an agent acts on at a time, on a webhook, or after a tool.
+    Routine,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 7] =
-        [Kind::Task, Kind::Goal, Kind::Person, Kind::Journal, Kind::Note, Kind::Review, Kind::Crew];
+    pub const ALL: [Kind; 8] = [
+        Kind::Task,
+        Kind::Goal,
+        Kind::Person,
+        Kind::Journal,
+        Kind::Note,
+        Kind::Review,
+        Kind::Crew,
+        Kind::Routine,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -37,6 +47,7 @@ impl Kind {
             Kind::Note => "note",
             Kind::Review => "review",
             Kind::Crew => "crew",
+            Kind::Routine => "routine",
         }
     }
 
@@ -341,6 +352,8 @@ pub struct CrewMember {
     pub effort: Option<String>,
     /// Tools it may use; empty means every lifeos tool.
     pub tools: Vec<String>,
+    /// Connections (outside MCP servers) it may use; the Assistant has them all.
+    pub connections: Vec<String>,
     /// active | retired
     pub status: String,
     /// How many things it remembers.
@@ -368,4 +381,102 @@ pub struct Memory {
     pub why_ended: Option<String>,
     /// How many times it was brought back into a conversation.
     pub recalled: u32,
+}
+
+// ------------------------------------------------------------------- routines
+
+/// Words an agent acts on by itself: on a schedule, once at a time, when a
+/// webhook is posted, or after a lifeos tool ran.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct Routine {
+    pub id: String,
+    pub title: String,
+    /// `assistant` or a crew member id: who does it, in its own conversation.
+    pub agent: String,
+    /// What to do each time, Markdown.
+    pub instructions: String,
+    /// Repeats: five cron fields, local time.
+    pub cron: Option<String>,
+    /// Once: `YYYY-MM-DD HH:MM`, local time.
+    pub at: Option<String>,
+    /// Runs after any of these lifeos write tools (not when a routine ran them).
+    pub on: Vec<String>,
+    /// Runs when `POST /hooks/<id>` is sent with its key.
+    pub hook: bool,
+    /// A webhook key has been set locally.
+    pub hook_ready: bool,
+    /// active | paused | done (a one-time routine that ran)
+    pub status: String,
+    /// When the schedule fires next, `YYYY-MM-DD HH:MM`.
+    pub next: Option<String>,
+    pub last: Option<Run>,
+    pub runs: u32,
+}
+
+/// One time a routine ran (or waits to).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct Run {
+    pub id: i64,
+    pub routine: String,
+    pub title: String,
+    pub agent: String,
+    /// schedule | hook | event | manual
+    pub trigger: String,
+    /// What set it off, in a line: the tool and its subject, the webhook's first words.
+    pub detail: Option<String>,
+    /// `YYYY-MM-DD HH:MM:SS`.
+    pub queued: String,
+    pub started: Option<String>,
+    pub finished: Option<String>,
+    pub ms: Option<u64>,
+    pub error: Option<String>,
+    /// The agent's reply, shortened.
+    pub reply: Option<String>,
+}
+
+// ---------------------------------------------------------------- connections
+
+/// An outside MCP server (GitHub, Gmail, X…) lifeos's agents can use.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct Connection {
+    /// Its tools reach the agent as `mcp__<name>__<tool>`.
+    pub name: String,
+    /// The preset it came from, if any.
+    pub preset: Option<String>,
+    /// http | stdio
+    pub transport: String,
+    /// The URL, or the command line.
+    pub target: String,
+    pub enabled: bool,
+    /// Secrets it names (`${NAME}`) that are not set yet: it stays off until they are.
+    pub missing: Vec<String>,
+    /// Crew members allowed to use it (the Assistant always is).
+    pub members: Vec<String>,
+}
+
+/// A connection lifeos knows how to set up.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct Preset {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    /// What the user does once on this machine, Markdown.
+    pub setup: String,
+    /// Secrets it needs set with `lifeos secret set`.
+    pub secrets: Vec<String>,
+    /// Already added.
+    pub added: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct Connections {
+    pub connections: Vec<Connection>,
+    pub presets: Vec<Preset>,
+    /// Names of the secrets set (never their values).
+    pub secrets: Vec<String>,
 }

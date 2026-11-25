@@ -1,2 +1,24 @@
 /target
 .DS_Store
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+.secrets/
+*.pem
+*.key
+
+# Vault state if a local vault is created inside the checkout
+.lifeos/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+/goals/
+/journal/
+/notes/
+/people/
+/reviews/
+/tasks/

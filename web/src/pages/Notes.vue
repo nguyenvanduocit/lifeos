@@ -16,7 +16,7 @@ const KIND: Record<string, string> = { task: 'việc', goal: 'mục tiêu', pers
 
 <template>
   <PageHead title="Ghi chú" sub="Ý tưởng, bài học, sách, và các bản review agent viết.">
-    <AskChip words="Lưu ghi chú: " label="Ghi chú mới" />
+    <AskChip size="sm" primary words="Lưu ghi chú: " label="Ghi chú mới" />
   </PageHead>
   <label class="mb-4 flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2 focus-within:border-accent">
     <Search :size="16" class="text-ink3" />

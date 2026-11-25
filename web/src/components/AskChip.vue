@@ -2,9 +2,10 @@
 // A suggestion for the agent. `say` puts the words in the Assistant's box to
 // finish; `now` sends them at once (for unambiguous asks like "mark it done").
 import { Sparkles } from '@lucide/vue'
+import { Button } from './ui/button'
 import { ask, say } from '../assistant'
 
-const props = defineProps<{ words: string; label?: string; now?: boolean }>()
+const props = defineProps<{ words: string; label?: string; now?: boolean; size?: 'xs' | 'sm'; primary?: boolean }>()
 
 function go() {
   if (props.now) void ask(props.words)
@@ -13,13 +14,16 @@ function go() {
 </script>
 
 <template>
-  <button
+  <Button
     type="button"
-    class="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-xs text-ink2 hover:border-accent hover:text-accent"
+    :variant="primary ? 'default' : 'outline'"
+    :size="size ?? 'xs'"
+    class="rounded-full"
+    :class="{ 'text-ink2': !primary }"
     :title="now ? 'Nhờ agent: ' + words : 'Viết cho agent: ' + words"
     @click="go"
   >
     <Sparkles :size="12" />
     {{ label ?? words }}
-  </button>
+  </Button>
 </template>

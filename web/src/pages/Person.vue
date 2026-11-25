@@ -15,9 +15,9 @@ const { data, error } = useRead('person', () => ({ id: props.id }))
   <p v-if="error" class="text-sm text-critical">{{ error }}</p>
   <template v-if="data">
     <PageHead :title="data.person.name" :sub="[data.person.relation, data.person.contact_every_days ? `liên lạc mỗi ${data.person.contact_every_days} ngày` : ''].filter(Boolean).join(' · ')">
-      <AskChip :words="`Vừa nói chuyện với ${data.person.name} (id ${data.person.id}): `" label="Ghi liên lạc" />
-      <AskChip :words="`Ghi nhớ về ${data.person.name} (id ${data.person.id}): `" label="Ghi nhớ" />
-      <AskChip :words="`Gợi ý mình nên hỏi thăm hay làm gì cho ${data.person.name} (id ${data.person.id}).`" label="Gợi ý" now />
+      <AskChip size="sm" :words="`Vừa nói chuyện với ${data.person.name} (id ${data.person.id}): `" label="Ghi liên lạc" />
+      <AskChip size="sm" :words="`Ghi nhớ về ${data.person.name} (id ${data.person.id}): `" label="Ghi nhớ" />
+      <AskChip size="sm" :words="`Gợi ý mình nên hỏi thăm hay làm gì cho ${data.person.name} (id ${data.person.id}).`" label="Gợi ý" now />
     </PageHead>
     <div class="grid gap-4 md:grid-cols-3">
       <Section title="Những gì lifeos nhớ" class="md:col-span-2">

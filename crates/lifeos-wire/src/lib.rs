@@ -122,6 +122,9 @@ pub struct Turn {
     /// When it was asked, `YYYY-MM-DD HH:MM`.
     pub at: String,
     pub reply: ChatDone,
+    /// Who asked when it was not the user: the routine that ran it, e.g.
+    /// `Bản tin buổi sáng · theo lịch`.
+    pub source: Option<String>,
 }
 
 /// How a page finds the link: served as JSON at `/link.json`.

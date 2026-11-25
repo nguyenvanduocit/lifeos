@@ -17,7 +17,7 @@ export interface Conversation {
 }
 
 export const panel = reactive({
-  open: localStorage.getItem('lifeos.assistant') !== 'closed',
+  open: localStorage.getItem('lifeos.assistant') === 'open',
   /** Who the panel talks to: `assistant` or a crew member id. */
   agent: localStorage.getItem('lifeos.agent') ?? ASSISTANT,
   tab: 'chat' as 'chat' | 'memory' | 'about',

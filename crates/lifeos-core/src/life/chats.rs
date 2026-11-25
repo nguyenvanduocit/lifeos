@@ -69,6 +69,7 @@ mod tests {
             ask: ask.into(),
             at: "2026-11-25 09:00".into(),
             reply: ChatDone { steps: vec![Step::Text("ừ".into())], ms: 5, cost_usd: None, error: None },
+            source: None,
         };
         life.save_turn("assistant", &turn("một")).unwrap();
         life.save_turn("coach", &turn("hai")).unwrap();

@@ -14,6 +14,10 @@ instructions: string, model: string | null, effort: string | null,
  */
 tools: Array<string>, 
 /**
+ * Connections (outside MCP servers) it may use; the Assistant has them all.
+ */
+connections: Array<string>, 
+/**
  * active | retired
  */
 status: string, 

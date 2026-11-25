@@ -14,11 +14,11 @@ const today = todayIso()
 
 <template>
   <PageHead title="Thói quen" sub="12 tuần gần nhất, mỗi ô một ngày; đậm hơn là làm nhiều hơn.">
-    <AskChip words="Mình muốn bắt đầu thói quen " label="Thói quen mới" />
-    <AskChip words="Nhận xét các thói quen của mình 4 tuần qua." label="Nhận xét" now />
+    <AskChip size="sm" primary words="Mình muốn bắt đầu thói quen " label="Thói quen mới" />
+    <AskChip size="sm" words="Nhận xét các thói quen của mình 4 tuần qua." label="Nhận xét" now />
   </PageHead>
   <div v-if="data" class="grid gap-4 md:grid-cols-2">
-    <section v-for="h in data" :key="h.habit" class="rounded-xl border border-line bg-panel p-4">
+    <section v-for="h in data" :key="h.habit" class="rounded-2xl border border-line bg-panel p-5">
       <div class="mb-3 flex items-center gap-3">
         <div class="flex-1">
           <h2 class="font-semibold first-letter:uppercase">{{ h.habit }}</h2>
@@ -44,6 +44,6 @@ const today = todayIso()
         <AskChip :words="`Dừng theo dõi thói quen “${h.habit}”.`" label="Dừng" />
       </div>
     </section>
-    <Empty v-if="!data.length" text="Chưa theo dõi thói quen nào." words="Mình muốn bắt đầu thói quen " label="Bắt đầu" />
+    <Empty v-if="!data.length" class="rounded-2xl border border-line bg-panel p-5 md:col-span-2" text="Chưa theo dõi thói quen nào." />
   </div>
 </template>

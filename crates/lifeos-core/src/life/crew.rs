@@ -33,6 +33,9 @@ input! {
         /// lifeos tools it may use (names from the tool list). Omit for every tool.
         #[serde(default)]
         pub tools: Vec<String>,
+        /// External MCP connection names this member may use.
+        #[serde(default)]
+        pub connections: Vec<String>,
     }
 }
 
@@ -47,6 +50,7 @@ input! {
         pub model: Option<String>,
         pub effort: Option<Effort>,
         pub tools: Option<Vec<String>>,
+        pub connections: Option<Vec<String>>,
     }
 }
 
@@ -69,6 +73,7 @@ fn check_tools(tools: &[String]) -> Result<()> {
 impl Life {
     pub fn add_member(&self, m: AddMember) -> Result<CrewMember> {
         check_tools(&m.tools)?;
+        self.check_connections(&m.connections)?;
         let name = m.name.trim().to_string();
         if name.is_empty() || name.eq_ignore_ascii_case(ASSISTANT) {
             bail!("pick another name");
@@ -80,6 +85,7 @@ impl Life {
             model: m.model,
             effort: m.effort.map(|e| e.as_str().to_string()),
             tools: m.tools,
+            connections: m.connections,
             created: Some(Local::now()),
             ..Default::default()
         };
@@ -107,6 +113,10 @@ impl Life {
         if let Some(tools) = u.tools {
             check_tools(&tools)?;
             doc.meta.tools = tools;
+        }
+        if let Some(connections) = u.connections {
+            self.check_connections(&connections)?;
+            doc.meta.connections = connections;
         }
         doc.meta.status = Some("active".into());
         self.save(&doc)?;
@@ -144,6 +154,7 @@ impl Life {
             model: m.model.clone(),
             effort: m.effort.clone(),
             tools: m.tools.clone(),
+            connections: m.connections.clone(),
             status: m.status.clone().unwrap_or_else(|| "active".into()),
             memories: self.memory_count(&doc.id)?,
         })

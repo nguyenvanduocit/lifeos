@@ -23,8 +23,8 @@ function lastWords(id: string): string {
 
 <template>
   <PageHead title="Crew" sub="Những agent riêng cho từng phần cuộc sống: mỗi agent có vai trò, hướng dẫn, tool, memory và cuộc trò chuyện riêng.">
-    <AskChip words="Mình muốn có một agent riêng để " label="Tuyển thành viên" />
-    <AskChip words="Gợi ý crew phù hợp với mình dựa trên mục tiêu và thói quen hiện tại." label="Gợi ý crew" now />
+    <AskChip size="sm" primary words="Mình muốn có một agent riêng để " label="Tuyển thành viên" />
+    <AskChip size="sm" words="Gợi ý crew phù hợp với mình dựa trên mục tiêu và thói quen hiện tại." label="Gợi ý crew" now />
   </PageHead>
 
   <div v-if="data" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

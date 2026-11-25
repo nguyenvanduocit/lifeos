@@ -28,9 +28,9 @@ const bars = computed(() => (m.value?.daily_spending ?? []).map((p) => ({ label:
 
 <template>
   <PageHead title="Tài chính" sub="Chi là số âm, thu là số dương; nói với agent mỗi khi tiền ra vào.">
-    <AskChip words="Vừa chi " label="Ghi chi tiêu" />
-    <AskChip words="Đặt ngân sách tháng cho " label="Đặt ngân sách" />
-    <AskChip :words="`Nhận xét chi tiêu tháng ${month} của mình.`" label="Nhận xét" now />
+    <AskChip size="sm" primary words="Vừa chi " label="Ghi chi tiêu" />
+    <AskChip size="sm" words="Đặt ngân sách tháng cho " label="Đặt ngân sách" />
+    <AskChip size="sm" :words="`Nhận xét chi tiêu tháng ${month} của mình.`" label="Nhận xét" now />
   </PageHead>
   <div class="mb-4 flex items-center gap-2 text-sm">
     <button type="button" class="rounded p-1 hover:bg-panel2" aria-label="Tháng trước" @click="shift(-1)"><ChevronLeft :size="16" /></button>
@@ -38,7 +38,7 @@ const bars = computed(() => (m.value?.daily_spending ?? []).map((p) => ({ label:
     <button type="button" class="rounded p-1 hover:bg-panel2 disabled:opacity-30" :disabled="isThisMonth" aria-label="Tháng sau" @click="shift(1)"><ChevronRight :size="16" /></button>
   </div>
   <div v-if="m" class="grid gap-4 md:grid-cols-3">
-    <div v-for="c in currencies" :key="c.currency" class="rounded-xl border border-line bg-panel p-4 md:col-span-3">
+    <div v-for="c in currencies" :key="c.currency" class="rounded-2xl border border-line bg-panel p-5 md:col-span-3">
       <div class="flex flex-wrap gap-8">
         <div><div class="text-xs text-ink3">Thu</div><div class="text-xl font-semibold tabular-nums">{{ money(c.income, c.currency) }}</div></div>
         <div><div class="text-xs text-ink3">Chi</div><div class="text-xl font-semibold tabular-nums">{{ money(c.spending, c.currency) }}</div></div>

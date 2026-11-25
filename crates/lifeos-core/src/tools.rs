@@ -16,6 +16,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::life::crew::*;
+use crate::life::connections::*;
+use crate::life::routines::*;
 use crate::life::goals::*;
 use crate::life::habits::*;
 use crate::life::health::*;
@@ -112,6 +114,14 @@ macro_rules! access {
     };
 }
 
+/// Assistant-only configuration tools. Automated turns cannot change their
+/// own triggers, enqueue another run, or edit crew and connection permissions.
+pub fn manages_automation(name: &str) -> bool {
+    matches!(name, "add_routine" | "update_routine" | "remove_routine" | "run_routine"
+        | "add_connection" | "set_connection" | "remove_connection"
+        | "add_member" | "update_member" | "retire_member")
+}
+
 macro_rules! tools {
     ($( $access:ident $name:literal: $input:ty => $output:ty, $desc:literal, |$life:ident, $arg:ident $(, $who:ident)?| $body:expr; )*) => {
         pub fn specs() -> Vec<ToolSpec> {
@@ -131,8 +141,20 @@ macro_rules! tools {
         /// id), after picking up hand edits to the vault. Errors are meant to
         /// be shown to the model.
         pub fn call(life: &mut Life, caller: &str, name: &str, input: Value) -> Result<Value> {
+            call_with_origin(life, caller, name, input, false)
+        }
+
+        pub fn event_tool(name: &str) -> bool {
+            match name {
+                $($name => !access!($access) && !manages_automation(name),)*
+                _ => false,
+            }
+        }
+
+        pub fn call_with_origin(life: &mut Life, caller: &str, name: &str, input: Value, automated: bool) -> Result<Value> {
+            anyhow::ensure!(!manages_automation(name) || (caller == ASSISTANT && !automated),
+                "only the Assistant in a user conversation may manage automation, crew and connections");
             life.sync_index()?;
-            let _ = caller;
             match name {
                 $($name => {
                     let $arg: $input = parse($name, input)?;
@@ -141,11 +163,17 @@ macro_rules! tools {
                     let out: Result<$output> = $body;
                     let out = out?;
                     let value = serde_json::to_value(out)?;
-                    Ok(if value.is_null() && std::any::TypeId::of::<$output>() == std::any::TypeId::of::<()>() {
+                    let value = if value.is_null() && std::any::TypeId::of::<$output>() == std::any::TypeId::of::<()>() {
                         json!({ "ok": true })
                     } else {
                         value
-                    })
+                    };
+                    if !automated && !access!($access) && !manages_automation(name)
+                        && let Err(err) = life.record_event(caller, name, &value) {
+                        // The write has already succeeded; reporting failure would invite a duplicate write.
+                        tracing::warn!("could not record event for {name}: {err}");
+                    }
+                    Ok(value)
                 })*
                 other => anyhow::bail!("unknown tool '{other}'"),
             }
@@ -347,6 +375,40 @@ tools! {
         "Forget a memory that is wrong or no longer holds, saying why.",
         |life, i, who| life.forget(who, i);
 
+    // ---------------------------------------------------------------- automation
+    read "list_routines": Nothing => Vec<Routine>,
+        "List routines, schedules, webhook readiness, and the latest run.",
+        |life, _i| life.routines();
+    read "list_runs": ListRuns => Vec<Run>,
+        "Read routine run history, including queued and running work.",
+        |life, i| life.runs(i.routine.as_deref(), i.limit.unwrap_or(30));
+    write "add_routine": AddRoutine => Routine,
+        "Create a routine with a prompt for an agent. Use a five-field local cron, a single local time, write-tool events, a webhook, or manual runs. Webhook keys are set in the terminal with lifeos hook-key.",
+        |life, i| life.add_routine(i);
+    write "update_routine": UpdateRoutine => Routine,
+        "Edit or pause a routine. Set cron or at to an empty string to clear it, or on to an empty array to clear all event triggers.",
+        |life, i| life.update_routine(i);
+    write "remove_routine": DocId => (),
+        "Delete a routine and cancel its waiting runs. Run history stays.",
+        |life, i| life.remove_routine(&i.id);
+    write "run_routine": DocId => Run,
+        "Queue a manual run. The LifeOS web worker runs it in the target agent's conversation.",
+        |life, i| life.queue_manual(&i.id);
+
+    // ---------------------------------------------------------------- connections
+    read "list_connections": Nothing => Connections,
+        "List external MCP connections, crew access, missing secret names and setup instructions. Never returns secret values.",
+        |life, _i| life.connections();
+    write "add_connection": AddConnection => Connection,
+        "Add a built-in external MCP preset (github, gmail, x). Set credentials locally per the preset instructions. Custom MCP servers are configured in the terminal with lifeos connection set.",
+        |life, i| life.add_connection(&i.preset);
+    write "set_connection": SetConnection => (),
+        "Enable or disable a configured MCP connection.",
+        |life, i| life.enable_connection(&i.name, i.enabled);
+    write "remove_connection": ConnectionName => (),
+        "Remove an external MCP connection.",
+        |life, i| life.remove_connection(&i.name);
+
     // ----------------------------------------------------------------- crew
     read "list_crew": Nothing => Vec<CrewMember>,
         "The crew: agents the user asked for, each with a role, instructions, tools and its own memory and conversation.",
@@ -358,7 +420,7 @@ tools! {
         "Add a crew member (crew/<id>.md) when the user wants a dedicated agent for part of their life, e.g. a health coach or a money adviser. Write its instructions in second person: its focus, tone, what to watch, when to speak up. Limit its tools to its area when that makes sense.",
         |life, i| life.add_member(i);
     write "update_member": UpdateMember => CrewMember,
-        "Change a crew member: name, role, instructions, model, effort, tools.",
+        "Change a crew member: name, role, instructions, model, effort, tools or its list of granted connection names.",
         |life, i| life.update_member(i);
     write "retire_member": MemberId => CrewMember,
         "Retire a crew member: it stops taking messages; its file and memories stay.",

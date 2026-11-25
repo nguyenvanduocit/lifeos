@@ -154,6 +154,60 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX turns_agent ON turns(agent, id);
     "#,
+    // v4: routine runs, what the write tools did (routines run after them),
+    // and outside MCP servers.
+    r#"
+    CREATE TABLE runs(
+        id       INTEGER PRIMARY KEY,
+        routine  TEXT NOT NULL,
+        title    TEXT NOT NULL,
+        agent    TEXT NOT NULL,
+        trigger  TEXT NOT NULL,
+        detail   TEXT,
+        payload  TEXT,
+        queued   TEXT NOT NULL,
+        started  TEXT,
+        finished TEXT,
+        ms       INTEGER,
+        error    TEXT,
+        reply    TEXT
+    );
+    CREATE INDEX runs_routine ON runs(routine, id);
+    CREATE INDEX runs_waiting ON runs(started) WHERE started IS NULL;
+    CREATE TABLE events(
+        id      INTEGER PRIMARY KEY,
+        at      TEXT NOT NULL,
+        caller  TEXT NOT NULL,
+        routine TEXT,
+        tool    TEXT NOT NULL,
+        input   TEXT NOT NULL,
+        output  TEXT NOT NULL
+    );
+    CREATE TABLE connections(
+        name    TEXT PRIMARY KEY,
+        preset  TEXT,
+        url     TEXT,
+        command TEXT,
+        args    TEXT NOT NULL DEFAULT '[]',
+        env     TEXT NOT NULL DEFAULT '{}',
+        headers TEXT NOT NULL DEFAULT '{}',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created TEXT NOT NULL
+    );
+    "#,
+    // v5: durable schedule cursors, run snapshots, and hashed webhook keys.
+    r#"
+    ALTER TABLE runs ADD COLUMN instructions TEXT NOT NULL DEFAULT '';
+    CREATE TABLE routine_schedules(
+        routine TEXT PRIMARY KEY,
+        expression TEXT NOT NULL,
+        next INTEGER
+    );
+    CREATE TABLE routine_hooks(
+        routine TEXT PRIMARY KEY,
+        digest BLOB NOT NULL
+    );
+    "#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {
@@ -173,12 +227,12 @@ pub fn open_in_memory() -> Result<Connection> {
 }
 
 fn migrate(conn: &mut Connection) -> Result<()> {
-    let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let current: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(current as usize) {
-        let tx = conn.transaction()?;
         tx.execute_batch(sql)?;
-        tx.execute_batch(&format!("PRAGMA user_version = {}", i + 1))?;
-        tx.commit()?;
+        tx.pragma_update(None, "user_version", i as i64 + 1)?;
     }
+    tx.commit()?;
     Ok(())
 }

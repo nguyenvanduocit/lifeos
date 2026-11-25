@@ -14,8 +14,8 @@ const { data: done } = useRead('list_tasks', () => ({ status: showDone.value ? '
 
 <template>
   <PageHead title="Việc" sub="Hạn thật là “hạn”; ngày định làm là lịch. Muốn đổi gì, nói với agent.">
-    <AskChip words="Thêm việc: " label="Thêm việc" />
-    <AskChip words="Sắp xếp lại các việc tuần này giúp mình, dời những việc không kịp." label="Sắp xếp tuần" />
+    <AskChip size="sm" primary words="Thêm việc: " label="Thêm việc" />
+    <AskChip size="sm" words="Sắp xếp lại các việc tuần này giúp mình, dời những việc không kịp." label="Sắp xếp tuần" />
   </PageHead>
   <div v-if="v" class="grid gap-4 md:grid-cols-2">
     <Section v-if="v.overdue.length" title="Quá hạn" :count="v.overdue.length">

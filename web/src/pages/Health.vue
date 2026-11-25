@@ -14,9 +14,9 @@ const { data } = useRead('metric_series', () => ({ days: days.value }))
 
 <template>
   <PageHead title="Sức khoẻ" sub="Mỗi thứ đo được là một chỉ số; kể cho agent là nó ghi.">
-    <AskChip words="Hôm nay mình nặng " label="Cân nặng" />
-    <AskChip words="Tối qua ngủ " label="Giấc ngủ" />
-    <AskChip words="Tâm trạng hôm nay (1-10): " label="Tâm trạng" />
+    <AskChip size="sm" words="Hôm nay mình nặng " label="Cân nặng" />
+    <AskChip size="sm" words="Tối qua ngủ " label="Giấc ngủ" />
+    <AskChip size="sm" words="Tâm trạng hôm nay (1-10): " label="Tâm trạng" />
   </PageHead>
   <div class="mb-4 flex gap-1 text-xs" role="group" aria-label="Khoảng thời gian">
     <button
@@ -31,7 +31,7 @@ const { data } = useRead('metric_series', () => ({ days: days.value }))
     </button>
   </div>
   <div v-if="data" class="grid gap-4 md:grid-cols-2">
-    <section v-for="m in data" :key="m.name" class="rounded-xl border border-line bg-panel p-4">
+    <section v-for="m in data" :key="m.name" class="rounded-2xl border border-line bg-panel p-5">
       <div class="mb-2 flex items-baseline gap-2">
         <h2 class="flex-1 font-semibold first-letter:uppercase">{{ m.name }}</h2>
         <span class="text-xl font-semibold tabular-nums">{{ m.latest !== null ? num(m.latest) : '–' }}</span>
@@ -42,6 +42,6 @@ const { data } = useRead('metric_series', () => ({ days: days.value }))
       </div>
       <Line :points="m.points" :unit="m.unit" />
     </section>
-    <Empty v-if="!data.length" text="Chưa có chỉ số nào trong khoảng này." words="Hôm nay mình nặng " label="Ghi chỉ số đầu tiên" />
+    <Empty v-if="!data.length" class="rounded-2xl border border-line bg-panel p-5 md:col-span-2" text="Chưa có chỉ số nào trong khoảng này." />
   </div>
 </template>

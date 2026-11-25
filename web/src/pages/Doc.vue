@@ -13,10 +13,10 @@ const KIND: Record<string, string> = { task: 'Việc', goal: 'Mục tiêu', pers
   <p v-if="error" class="text-sm text-critical">{{ error }}</p>
   <template v-if="data">
     <PageHead :title="data.summary.title" :sub="[KIND[data.summary.kind], data.summary.status, data.summary.due && 'hạn ' + data.summary.due, data.summary.path].filter(Boolean).join(' · ')">
-      <AskChip :words="`Về “${data.summary.title}” (${data.summary.path}): `" label="Nhờ agent sửa" />
+      <AskChip size="sm" :words="`Về “${data.summary.title}” (${data.summary.path}): `" label="Nhờ agent sửa" />
     </PageHead>
     <div v-if="data.summary.tags.length" class="mb-3 flex gap-2 text-xs text-ink3"><span v-for="t in data.summary.tags" :key="t">#{{ t }}</span></div>
-    <article class="rounded-xl border border-line bg-panel p-5">
+    <article class="rounded-2xl border border-line bg-panel p-5">
       <Markdown v-if="data.body.trim()" :source="data.body" />
       <p v-else class="text-sm text-ink3">Trống.</p>
     </article>
