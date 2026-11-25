@@ -56,9 +56,9 @@ impl Bot {
             .post(format!("{}/{method}", self.base))
             .json(&body)
             .send()
-            .await?
+            .await.map_err(reqwest::Error::without_url)?
             .json()
-            .await?;
+            .await.map_err(reqwest::Error::without_url)?;
         if !res.ok {
             bail!("telegram {method}: {}", res.description.unwrap_or_default());
         }
@@ -83,14 +83,18 @@ impl Bot {
 
 pub async fn run(life: SharedLife, config: BotConfig) -> Result<()> {
     let agents = Agents::start(life.clone(), config.agent.clone()).await?;
-    if config.allowed_chats.is_empty() {
+    poll(&agents, &config.token, &config.allowed_chats).await
+}
+
+pub async fn poll(agents: &Agents, token: &str, allowed_chats: &[i64]) -> Result<()> {
+    if allowed_chats.is_empty() {
         tracing::warn!("no allowed chats: the bot will only tell each chat its id");
     }
     let bot = Bot {
         http: reqwest::Client::builder()
             .timeout(Duration::from_secs(60))
             .build()?,
-        base: format!("https://api.telegram.org/bot{}", config.token),
+        base: format!("https://api.telegram.org/bot{token}"),
     };
     let mut offset = 0i64;
     tracing::info!("lifeos telegram bot is polling");
@@ -110,7 +114,7 @@ pub async fn run(life: SharedLife, config: BotConfig) -> Result<()> {
         for update in updates {
             offset = update.update_id + 1;
             let Some(Message { chat, text: Some(text) }) = update.message else { continue };
-            if let Err(err) = handle(&bot, &agents, &config, chat.id, text.trim()).await {
+            if let Err(err) = handle(&bot, agents, allowed_chats, chat.id, text.trim()).await {
                 tracing::warn!("chat {}: {err:#}", chat.id);
                 let _ = bot.send(chat.id, &format!("Lỗi: {err:#}")).await;
             }
@@ -119,12 +123,12 @@ pub async fn run(life: SharedLife, config: BotConfig) -> Result<()> {
 }
 
 /// One message from an allowed chat, to the Assistant: the same conversation the web app shows.
-async fn handle(bot: &Bot, agents: &Agents, config: &BotConfig, chat_id: i64, text: &str) -> Result<()> {
-    if !config.allowed_chats.contains(&chat_id) {
+async fn handle(bot: &Bot, agents: &Agents, allowed_chats: &[i64], chat_id: i64, text: &str) -> Result<()> {
+    if !allowed_chats.contains(&chat_id) {
         return bot
             .send(
                 chat_id,
-                &format!("Chat này chưa được phép dùng lifeos. Chat id: {chat_id}\nThêm nó vào LIFEOS_TELEGRAM_ALLOWED_CHATS."),
+                &format!("Chat này chưa được phép dùng lifeos. Chat id: {chat_id}\nThêm ID này vào danh sách chat được phép trong cấu hình Telegram."),
             )
             .await;
     }

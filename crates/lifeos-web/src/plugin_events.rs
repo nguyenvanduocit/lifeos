@@ -150,6 +150,14 @@ impl Queue {
             .optional()?)
     }
 
+    pub fn observed_keys(&self) -> anyhow::Result<Vec<String>> {
+        let conn = self.0.lock().expect("plugin queue lock");
+        let mut query = conn.prepare("SELECT DISTINCT event FROM signal_history")?;
+        Ok(query
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn history(&self) -> anyhow::Result<Vec<Value>> {
         let conn = self.0.lock().expect("plugin queue lock");
         let mut query = conn.prepare(

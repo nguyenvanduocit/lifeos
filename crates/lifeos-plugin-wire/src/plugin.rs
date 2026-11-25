@@ -14,7 +14,7 @@ use crate::Ack;
 
 /// The contract's number, the plugin's `hello.bundle`. Additive changes keep it; any other change bumps it, and Remit refuses a
 /// plugin built against another (`new_bundle`): it is built again.
-pub const PLUGIN_CONTRACT: i64 = 3;
+pub const PLUGIN_CONTRACT: i64 = 4;
 
 /// The credential variables of the connection a call came through, by name.
 pub type Vars = BTreeMap<String, String>;
@@ -25,7 +25,7 @@ pub use grant::Effect;
 
 /// How an [`Effect`] is written in the contract and in a stored manifest: the variant, as serde's remote derive for a type
 /// of another crate writes it (`#[serde(with = "EffectDef")]`). The compiler holds its variants to the ladder's.
-#[derive(Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Serialize, Deserialize)]
 #[serde(remote = "Effect", rename_all = "snake_case")]
 pub enum EffectDef {
     Read,
@@ -83,9 +83,12 @@ fn word(s: &str, first: fn(u8) -> bool, rest: fn(u8) -> bool, len: std::ops::Ran
 }
 
 /// One credential variable the plugin reads: `secret` is stored sealed and never shown, `address` says where the system is.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Var {
+    /// Requests the Vault key of the same name at installation.
+    #[serde(default)]
+    pub vault: bool,
     pub name: String,
     pub what: String,
     pub secret: bool,
@@ -94,19 +97,21 @@ pub struct Var {
 }
 
 /// One question or act an agent can ask of the plugin; `inputSchema` is a JSON Schema document.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Tool {
     pub name: String,
     pub description: String,
+    #[schemars(with = "serde_json::Map<String, serde_json::Value>")]
     pub input_schema: ForeignJson,
+    #[schemars(with = "EffectDef")]
     #[serde(with = "EffectDef")]
     pub effect: Effect,
 }
 
 /// An event signal the plugin ships, `event:<name>`, filled by its poll with `pollQuery` every `pollEveryMinutes` (zero: its
 /// events come to its door); `paused` ships it waiting for the owner.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Signal {
     pub name: String,
@@ -117,9 +122,15 @@ pub struct Signal {
 }
 
 /// An agent template the plugin ships; `group` is the kind of work it is for, empty for general.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Agent {
+    /// Plugin functions this agent may call, also subject to the installed allowlist.
+    #[serde(default)]
+    pub plugin_tools: Vec<String>,
+    /// Native LifeOS tool names requested by this crew member.
+    #[serde(default,skip_serializing_if="Vec::is_empty")]
+    pub lifeos_tools: Vec<String>,
     pub id: String,
     pub name: String,
     pub description: String,
@@ -127,29 +138,44 @@ pub struct Agent {
     pub instructions: String,
 }
 
+/// A native LifeOS routine targeting an agent contributed by this package.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct Automation {
+    pub id:String, pub title:String, pub instructions:String, pub agent:String,
+    /// Optional five-field cron expression in the LifeOS timezone. Omit for manual runs.
+    #[serde(default)] pub cron: Option<String>,
+    /// LifeOS write tools which trigger this routine.
+    #[serde(default)] pub on: Vec<String>,
+    #[serde(default)] pub paused:bool,
+}
+
 /// A kind of sensor the plugin adds (ADR-0049); `settingsSchema` is a JSON Schema document of a sensor's settings.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SensorKind {
     pub name: String,
     pub label: String,
+    #[schemars(with = "serde_json::Map<String, serde_json::Value>")]
     pub settings_schema: ForeignJson,
 }
 
 /// Something a firing can do that the plugin adds, named by a subscription as `plugin:<id>.<name>`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Processor {
     pub name: String,
     pub label: String,
+    #[schemars(with = "serde_json::Map<String, serde_json::Value>")]
     pub params_schema: ForeignJson,
+    #[schemars(with = "EffectDef")]
     #[serde(with = "EffectDef")]
     pub effect: Effect,
 }
 
 /// A subscription the plugin ships: exactly one of `processor` (with `params`, a JSON object) and `action` (`tell` or `run`,
 /// with `job` and the expressions of `with`) is set.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Subscription {
     pub name: String,
@@ -158,6 +184,7 @@ pub struct Subscription {
     pub expr: String,
     pub processor: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<serde_json::Value>")]
     pub params: Option<ForeignJson>,
     pub action: String,
     pub job: String,
@@ -166,7 +193,7 @@ pub struct Subscription {
 }
 
 /// How the injecting proxy reaches the plugin's API and adds the connection's credential (ADR-0018, form T1).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Auth {
     pub base: String,
@@ -181,7 +208,7 @@ pub struct Auth {
 }
 
 /// One place in the app the plugin fills with a component its remote exposes.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Slot {
     pub slot: String,
@@ -191,18 +218,78 @@ pub struct Slot {
 }
 
 /// The frontend a plugin brings: the entry of its Module Federation remote, one of its assets, and the slots it fills.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Ui {
     pub entry: String,
     pub slots: Vec<Slot>,
 }
 
+#[derive(Debug, PartialEq, schemars::JsonSchema, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    Text,
+    Secret,
+    Select,
+}
+
+#[derive(Debug, PartialEq, schemars::JsonSchema, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Field {
+    pub key: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub kind: Kind,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub options: Vec<String>,
+    #[serde(default)]
+    pub default: String,
+}
+
+#[derive(Debug, PartialEq, schemars::JsonSchema, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SettingsSchema {
+    pub version: u32,
+    #[serde(default)]
+    pub description: String,
+    pub fields: Vec<Field>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, schemars::JsonSchema, Serialize, Deserialize)]
+#[serde(rename_all="snake_case")]
+pub enum Storage { VaultDatabase, SignalHistory }
+
+#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Webhook {
+    pub processor:String,
+    pub headers:Vec<String>,
+}
+
 /// Everything the owner reads before applying a plugin; `poll` makes it a source of events, `accounts` makes each of its
 /// connections a Claude account (ADR-0071).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(schemars::JsonSchema, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase",deny_unknown_fields)]
 pub struct Manifest {
+    #[serde(default = "manifest_version")]
+    #[schemars(range(min=1,max=1))]
+    pub schema_version: u32,
+    #[serde(default)]
+    pub automations: Vec<Automation>,
+    #[serde(default)]
+    pub emits:BTreeMap<String,String>,
+    #[serde(default)]
+    pub webhooks:BTreeMap<String,Webhook>,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub settings: Option<SettingsSchema>,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub storage: Option<Storage>,
     pub label: String,
     pub capability: String,
     pub vars: Vec<Var>,
@@ -218,6 +305,87 @@ pub struct Manifest {
     pub subscriptions: Vec<Subscription>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth: Option<Auth>,
+}
+
+pub const fn manifest_version() -> u32 { 1 }
+
+impl Manifest {
+    pub fn parse_package(source: &str) -> Result<Self,String> {
+        let mut document: serde_json::Value = serde_json::from_str(source).map_err(|e| e.to_string())?;
+        if document.get("schemaVersion").and_then(|v|v.as_u64()) != Some(1) {
+            return Err("Package requires schemaVersion 1".into());
+        }
+        if let Some(object)=document.as_object_mut() { object.remove("$schema"); }
+        let manifest: Self = serde_json::from_value(document).map_err(|e| e.to_string())?;
+        manifest.check().map_err(str::to_owned)?;
+        if manifest.version.trim().is_empty() || manifest.description.trim().is_empty() || manifest.vars.iter().any(|v|v.secret && !v.vault) {
+            return Err("Package requires version, description and Vault bindings for secret fields".into());
+        }
+        Ok(manifest)
+    }
+
+    /// Validate the common contract at the host boundary, including non-SDK binaries.
+    pub fn check(&self) -> Result<(), &'static str> {
+        if self.schema_version != manifest_version() || self.label.trim().is_empty() || self.capability.trim().is_empty() {
+            return Err("Unsupported or incomplete plugin manifest");
+        }
+        let mut names = std::collections::BTreeSet::new();
+        for var in &self.vars {
+            if !is_var_name(&var.name) || !names.insert(&var.name) { return Err("Invalid or duplicate variable"); }
+        }
+        if let Some(spec) = &self.settings {
+            let mut fields = std::collections::BTreeSet::new();
+            if spec.version != 1 || spec.fields.iter().any(|f| {
+                let var = self.vars.iter().find(|v| v.name == f.key);
+                !fields.insert(&f.key) || f.label.trim().is_empty() || var.is_none()
+                    || (var.is_some_and(|v| v.secret) && !matches!(f.kind,Kind::Secret))
+                    || (matches!(f.kind,Kind::Secret) && !f.default.is_empty())
+                    || (matches!(f.kind,Kind::Select) && (f.options.is_empty() || (!f.default.is_empty() && !f.options.contains(&f.default))))
+            }) { return Err("Invalid settings declaration"); }
+        }
+        names.clear();
+        for tool in &self.tools {
+            if !is_tool_name(&tool.name) || !names.insert(&tool.name) || tool.description.trim().is_empty()
+                || tool.input_schema.0.get("type").and_then(|v| v.as_str()) != Some("object") {
+                return Err("Invalid tool declaration");
+            }
+        }
+        let valid_id = |id:&str| !id.is_empty() && id.len() <= 40 && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        let mut agents = std::collections::BTreeSet::new();
+        for a in &self.agents {
+            if !valid_id(&a.id) || a.name.trim().is_empty() || a.instructions.trim().is_empty() || !agents.insert(&a.id)
+                || a.plugin_tools.iter().any(|name| !names.contains(name)) {return Err("Invalid agent declaration");}
+        }
+        let mut routines = std::collections::BTreeSet::new();
+        for r in &self.automations {
+            if !valid_id(&r.id) || !routines.insert(&r.id) || !agents.contains(&r.agent) || r.title.trim().is_empty() || r.instructions.trim().is_empty() {
+                return Err("Invalid automation declaration or agent reference");
+            }
+        }
+        let event_name = |s:&str| !s.is_empty() && s.len()<=64 && s.bytes().all(|b|b.is_ascii_lowercase() || b.is_ascii_digit() || b==b'-' || b==b'_');
+        if self.emits.iter().any(|(name,note)| !event_name(name) || note.trim().is_empty()) {return Err("Invalid event declaration");}
+        if self.webhooks.iter().any(|(name,hook)|!event_name(name) || !self.processors.iter().any(|p|p.name==hook.processor)
+            || hook.headers.iter().any(|s|!event_name(s))) {return Err("Invalid webhook declaration");}
+        if let Some(ui) = &self.ui {
+            let mut slots = std::collections::BTreeSet::new();
+            for slot in &ui.slots {
+                if slot.id.is_empty() || slot.slot.is_empty() || !slots.insert((&slot.slot,&slot.id)) || (slot.expose.is_empty() && ui.entry.is_empty()) {
+                    return Err("Invalid UI slot");
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+pub fn manifest_schema() -> schemars::Schema {
+    let mut schema = schemars::schema_for!(Manifest);
+    let obj = schema.ensure_object();
+    obj["properties"]["$schema"] = serde_json::json!({"type":"string"});
+    if let Some(fields) = obj["required"].as_array_mut() {
+        fields.extend(["schemaVersion","version","description"].map(|s|serde_json::Value::String(s.into())));
+    }
+    schema
 }
 
 /// What a poll is asked: the owner's query, the cursor of the last poll (empty on the first) and the most items to answer.
@@ -317,7 +485,7 @@ pub struct Asset {
 link::contract! {
     capability: "plugin";
     reads {
-        describe() -> Manifest, why = "reads what the plugin says it is";
+        describe() -> ForeignJson, why = "reads what the plugin says it is";
         poll(ask: PollAsk) -> PollAnswer, why = "reads the events after a cursor; only the host keeps the cursor it answers";
         asset(name: String) -> Asset, why = "reads one file of the plugin's frontend";
         /// The environment a Claude Code session runs with on the account the connection of `vars` is (ADR-0071).

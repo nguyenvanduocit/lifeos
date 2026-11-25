@@ -125,7 +125,11 @@ impl Plugin for RemotePlugin {
     }
 
     async fn describe(&self) -> Result<Manifest, Failure> {
-        self.ask(client::describe()).await
+        let document: model::ForeignJson = self.ask(client::describe()).await?;
+        let manifest: Manifest = serde_json::from_value(document.0)
+            .map_err(|error| Failure::new(ErrorCode::InvalidArgument,format!("Invalid manifest: {error}")))?;
+        manifest.check().map_err(|msg| Failure::new(ErrorCode::InvalidArgument, msg))?;
+        Ok(manifest)
     }
 
     async fn call(

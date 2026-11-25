@@ -70,6 +70,7 @@ impl Server {
 
 /// What a token opens: the toolbox of the card whose run holds it, on one of the door's servers.
 pub trait Opens: Send + Sync + 'static {
+    fn plugin_home(&self, _token: &str, _id:&str) -> Option<(std::path::PathBuf,String)> { None }
     fn toolbox(&self, token: &str, server: Server) -> Option<Toolbox>;
     /// The card a live run's token names and where its telemetry is kept; none for a token no live run holds.
     fn telemetry(&self, token: &str) -> Option<(String, Store)>;
@@ -103,6 +104,7 @@ impl Tokens {
 }
 
 struct Door {
+    plugins: tokio::sync::Mutex<HashMap<String, lifeos_mcp::plugin::Server>>,
     opens: Arc<dyn Opens>,
     sessions: Arc<NeverSessionManager>,
     config: StreamableHttpServerConfig,
@@ -111,11 +113,13 @@ struct Door {
 /// Starts the door on a loopback port of its own; the URL sessions are given.
 pub async fn open(opens: Arc<dyn Opens>) -> Result<String> {
     let door = Door {
+        plugins: Default::default(),
         opens,
         sessions: Arc::new(NeverSessionManager::default()),
         config: StreamableHttpServerConfig::default().with_legacy_session_mode(false).with_json_response(true),
     };
     let router = Router::new()
+        .route("/plugins/{id}", any(serve_plugin))
         .route(PATTERN, any(serve_lifeos))
         .route(GOOGLE_PATTERN, any(serve_google))
         .route(DESKTOP_PATTERN, any(serve_desktop))
@@ -131,6 +135,31 @@ pub async fn open(opens: Arc<dyn Opens>) -> Result<String> {
         }
     });
     Ok(format!("http://{addr}{PATTERN}"))
+}
+
+async fn serve_plugin(State(door): State<Arc<Door>>, axum::extract::Path(id): axum::extract::Path<String>, req: Request) -> Response {
+    let Some((home,card)) = bearer(&req).and_then(|token| door.opens.plugin_home(token,&id)) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let server = {
+        let mut plugins = door.plugins.lock().await;
+        if let Some(server) = plugins.get(&id).filter(|s| s.available()) {
+            server.clone()
+        } else {
+            plugins.remove(&id);
+            let Ok(server) = lifeos_mcp::plugin::open(&home, id.clone()).await else {
+                return StatusCode::NOT_FOUND.into_response();
+            };
+            plugins.insert(id, server.clone());
+            server
+        }
+    };
+    let server = server.for_agent(card);
+    let mut mcp = StreamableHttpService::new(move || Ok::<_, std::io::Error>(server.clone()), Arc::clone(&door.sessions), door.config.clone());
+    match mcp.call(req).await {
+        Ok(res) => res.map(Body::new),
+        Err(never) => match never {},
+    }
 }
 
 async fn serve_lifeos(state: State<Arc<Door>>, req: Request) -> Response {

@@ -15,6 +15,7 @@ mod google;
 mod health;
 mod link;
 mod plugins;
+mod telegram;
 mod plugin_events;
 mod routines;
 mod vault;
@@ -51,6 +52,7 @@ pub(crate) struct AppState {
     pub agents: Agents,
     pub accounts: Arc<AccountPool>,
     plugins: plugins::Plugins,
+    telegram: telegram::Channel,
     widget_refreshes: widgets::Refreshes,
     /// Grows on every change; open pages watch it to read again.
     pub changes: watch::Sender<u64>,
@@ -135,8 +137,9 @@ pub async fn start(life: SharedLife, mut agent_config: AgentsConfig, config: Web
     life.lock().expect("life lock").computers_all_gone()?;
     let google = agents.google();
     let computers = agents.computers();
-    let plugins = plugins::Plugins::load(life.lock().expect("life lock").home())?;
-    let state = Arc::new(AppState { life, agents, accounts, changes, plugins, widget_refreshes: Default::default() });
+    let plugins = plugins::Plugins::load(&life.lock().expect("life lock"))?;
+    let telegram = telegram::Channel::load(life.clone())?;
+    let state = Arc::new(AppState { telegram, life, agents, accounts, changes, plugins, widget_refreshes: Default::default() });
     let endpoint = web_transport_quinn::quinn::Endpoint::server(cert.quic_config()?, config.link)
         .with_context(|| format!("cannot listen for the link on udp {}", config.link))?;
     let link = endpoint.local_addr()?;
@@ -147,11 +150,16 @@ pub async fn start(life: SharedLife, mut agent_config: AgentsConfig, config: Web
     let routine_lock = routines::lock(&state)?;
     let app = Router::new()
         .route("/link.json", get(link_json))
+        .route("/api/memory/models", get(|State(s): State<Arc<HttpState>>| async move { Json(s.app.agents.memory_models()) }))
         .route(
             "/api/attachments/{key}/{name}",
             get(attachments::get).put(attachments::put).layer(DefaultBodyLimit::max(attachments::MAX_BYTES)),
         )
+        .route("/api/telegram", post(telegram::configure).layer(DefaultBodyLimit::max(4096)))
         .route("/api/signals", get(plugins::signals))
+        .route("/api/plugins/{id}/settings", get(plugins::settings_view).post(plugins::settings_save).layer(DefaultBodyLimit::max(64 * 1024)))
+        .route("/api/plugin-manifest.schema.json", get(|| async { axum::Json(plugin_wire::plugin::manifest_schema()) }))
+        .route("/api/plugins/{id}/manifest", get(plugins::manifest_view))
         .route("/api/plugins", get(plugins::catalog))
         .route("/api/plugins/{id}", post(plugins::manage).layer(DefaultBodyLimit::max(1024)))
         .route("/api/plugins/{id}/functions/{tool}", post(plugins::call).layer(DefaultBodyLimit::max(64 * 1024)))
@@ -185,10 +193,11 @@ pub async fn start(life: SharedLife, mut agent_config: AgentsConfig, config: Web
         };
         tokio::select! {
             result = axum::serve(listener, app) => result,
-            () = state.plugins.worker() => Ok(()),
+            () = state.plugins.worker(&state.life) => Ok(()),
             () = state.plugins.watch_changes(state.changes.subscribe()) => Ok(()),
             () = routines::worker(state.clone()) => Ok(()),
             () = notice_outside_changes(state.clone()) => Ok(()),
+            () = state.telegram.worker(&state.agents) => Ok(()),
             () = daily_brief => Ok(()),
             () = link::accept(link_server, state.clone()) => Ok(()),
             () = cert::rotate(rotate_endpoint, rotate_cert) => Ok(()),

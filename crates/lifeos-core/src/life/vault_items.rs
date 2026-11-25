@@ -614,6 +614,26 @@ impl Life {
         self.remove_vault_item(id)
     }
 
+    /// Resolve one named credential for a host integration. Agent calls must satisfy its Vault grant.
+    pub fn integration_key(&self, name: &str, agent: Option<&str>) -> Result<Option<String>> {
+        let row = self.conn.query_row("SELECT id,all_agents,agents FROM vault_items WHERE kind='key' AND key_name=?1", [name],
+            |r| Ok((r.get::<_,i64>(0)?, r.get::<_,bool>(1)?, r.get::<_,String>(2)?))).optional()?;
+        let Some((id, all, agents)) = row else { return Ok(None) };
+        if let Some(agent) = agent && !usable(all, &serde_json::from_str::<Vec<String>>(&agents)?, agent) {
+            return Ok(None);
+        }
+        self.read_value(id)
+    }
+
+    pub fn migrate_integration_key(&self, name: &str, value: &str) -> Result<()> {
+        if let Some(existing) = self.integration_key(name, None)? {
+            ensure!(existing == value, "Existing Vault value differs for {name}");
+        } else {
+            self.set_vault_key(name, value)?;
+        }
+        Ok(())
+    }
+
     /// Every saved key with its value, for the connections lifeos starts.
     pub(super) fn vault_keys(&self) -> Result<Vec<KeyEntry>> {
         self.adopt_old_secrets()?;
@@ -631,7 +651,7 @@ impl Life {
     }
 
     /// Every password and key saved, to take out of what agents' sessions show.
-    pub(super) fn vault_values(&self) -> Result<Vec<String>> {
+    pub fn vault_values(&self) -> Result<Vec<String>> {
         let ids = self
             .conn
             .prepare("SELECT id FROM vault_items WHERE kind<>'contact'")?

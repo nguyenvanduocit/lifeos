@@ -64,7 +64,11 @@ enum Command {
     /// Ask one thing and print the answer.
     Ask { message: Vec<String> },
     /// Serve the tools over MCP on stdio (`claude mcp add lifeos -- lifeos mcp`).
-    Mcp,
+    Mcp {
+        /// Serve the enabled functions of this installed plugin.
+        #[arg(long)]
+        plugin: Option<String>,
+    },
     /// Serve the web app (HTTP) and its WebTransport link (UDP).
     ///
     /// Behind `tailscale serve` (the page needs HTTPS for WebTransport), keep
@@ -204,7 +208,8 @@ async fn run() -> Result<()> {
             open()?.set_custom_connection(&name, &config)
         }
         Command::Connection { command: ConnectionCommand::Remove { name } } => open()?.remove_connection(&name),
-        Command::Mcp => lifeos_mcp::serve_stdio(&mut open()?),
+        Command::Mcp { plugin: Some(id) } => lifeos_mcp::plugin::serve(&home, id).await,
+        Command::Mcp { plugin: None } => lifeos_mcp::serve_stdio(&mut open()?),
         Command::Web { host, port, link_host, link_port, brief_at } => {
             let config = lifeos_web::WebConfig {
                 http: SocketAddr::new(host, port),

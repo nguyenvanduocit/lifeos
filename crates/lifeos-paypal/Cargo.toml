@@ -1,0 +1,16 @@
+[package]
+name = "lifeos-paypal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono = "0.4"
+serde_json.workspace = true
+plugin-sdk = { path = "../plugin-sdk" }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
+schemars = "1.2.3"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }

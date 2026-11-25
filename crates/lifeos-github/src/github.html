@@ -15,6 +15,9 @@
 <p>Run <code>lifeos-github --mcp-config | lifeos connection set github</code> to add GitHub under Connections. Store <code>GITHUB_TOKEN</code> in the Vault and choose which agents may use it.</p>
 <h2>Repository events</h2>
 <p>Send signed JSON deliveries to <code>/api/plugins/github/hooks/webhook</code>. Enable the webhook and its shared secret in the plugin configuration.</p>
+<p>Subscribe to <code>plugin.github.pull_request_merged</code> for completed merges, or select pull request review and review comment events in the repository webhook.</p>
+<h2>Personal notifications</h2>
+<p>With the signed webhook configured, sign in to GitHub CLI on the host and run <code>python3 scripts/install-github-notifications.py</code> on macOS. New thread updates appear as <code>plugin.github.notification</code> under Automation → Signals.</p>
 <script>
   new ResizeObserver(() => {
     parent.postMessage({ type: 'lifeos:resize', height: document.body.getBoundingClientRect().height }, '*')

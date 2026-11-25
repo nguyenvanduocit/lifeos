@@ -23,7 +23,11 @@ use tokio::sync::{Mutex, OnceCell, watch};
 use crate::HttpState;
 use lifeos_core::plugins::{Hook, Install, configs, identifier};
 
+const STARTED: &str = "lifeos.started";
+const CHANGED: &str = "lifeos.changed";
+
 struct Installed {
+    home: PathBuf,
     config: Install,
     remote: RemotePlugin,
     manifest: OnceCell<Manifest>,
@@ -50,11 +54,11 @@ struct Summary<'a> {
 }
 
 impl Plugins {
-    pub(crate) fn load(home: &Path) -> anyhow::Result<Self> {
-        let directory = home.join(".lifeos");
+    pub(crate) fn load(life: &lifeos_core::Life) -> anyhow::Result<Self> {
+        let directory = life.home().join(".lifeos");
         std::fs::create_dir_all(&directory)?;
         let path = directory.join("plugins.json");
-        let (entries, error) = match Self::read(&path) {
+        let (entries, error) = match Self::read(&path, life) {
             Ok(entries) => (entries, None),
             Err(error) => {
                 tracing::warn!(%error, "plugin configuration failed");
@@ -71,11 +75,42 @@ impl Plugins {
         })
     }
 
-    fn read(path: &Path) -> anyhow::Result<BTreeMap<String, Arc<Installed>>> {
-        Ok(configs(path)?
+    fn read(
+        path: &Path,
+        life: &lifeos_core::Life,
+    ) -> anyhow::Result<BTreeMap<String, Arc<Installed>>> {
+        let mut entries = configs(path)?;
+        let original: Value = if path.exists() {
+            serde_json::from_slice(&std::fs::read(path)?)?
+        } else {
+            Value::Null
+        };
+        let mut migrated = false;
+        for (id, config) in &mut entries {
+            if original[id].get("vault_keys").is_none() {
+                for &key in lifeos_core::plugins::legacy_credentials(id) {
+                    if !config.vault_keys.iter().any(|k| k == key) {
+                        config.vault_keys.push(key.into());
+                        migrated = true;
+                    }
+                }
+            }
+            for key in &config.vault_keys {
+                if let Some(value) = config.vars.remove(key) {
+                    if !value.is_empty() {
+                        life.migrate_integration_key(key, &value)?;
+                    }
+                    migrated = true;
+                }
+            }
+        }
+        if migrated {
+            Self::write_configs(path, &entries)?;
+        }
+        Ok(entries
             .into_iter()
             .map(|(id, config)| {
-                let plugin = Arc::new(Installed::new(&id, config));
+                let plugin = Arc::new(Installed::new(&id, config, path));
                 (id, plugin)
             })
             .collect())
@@ -95,19 +130,55 @@ impl Plugins {
             .ok_or_else(|| not_found("Plugin is unavailable"))
     }
 
-    fn packaged_github(&self) -> PathBuf {
+    fn package(&self, id: &str) -> PathBuf {
         self.path
             .with_file_name("plugin-packages")
-            .join("lifeos-github")
+            .join(format!("lifeos-{id}"))
     }
 
-    fn install_github(&self) -> anyhow::Result<Install> {
-        let package = self.packaged_github();
+    fn package_manifest(&self, id: &str) -> anyhow::Result<Manifest> {
+        anyhow::ensure!(identifier(id), "Invalid package identifier");
+        let source = std::fs::read_to_string(self.package(id).with_extension("manifest.json"))?;
+        let manifest = Manifest::parse_package(&source).map_err(anyhow::Error::msg)?;
+        anyhow::ensure!(
+            manifest.capability == id && !manifest.version.is_empty(),
+            "Package identity or version missing"
+        );
+        Ok(manifest)
+    }
+
+    fn available(&self, installed: &BTreeMap<String, Arc<Installed>>) -> Vec<Value> {
+        let mut packages = Vec::new();
+        if let Ok(files) = std::fs::read_dir(self.path.with_file_name("plugin-packages")) {
+            for file in files.flatten() {
+                let name = file.file_name();
+                let Some(id) = name
+                    .to_str()
+                    .and_then(|n| n.strip_prefix("lifeos-"))
+                    .and_then(|n| n.strip_suffix(".manifest.json"))
+                else {
+                    continue;
+                };
+                if installed.contains_key(id) || !self.package(id).is_file() {
+                    continue;
+                }
+                if let Ok(manifest) = self.package_manifest(id) {
+                    packages.push(json!({"id":id,"label":manifest.label,"manifest":manifest}));
+                }
+            }
+        }
+        packages.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+        packages
+    }
+
+    fn install_package(&self, id: &str) -> anyhow::Result<Install> {
+        let manifest = self.package_manifest(id)?;
+        let package = self.package(id);
         let body = std::fs::read(&package)?;
         let sha256 = hex::encode(ring::digest::digest(&ring::digest::SHA256, &body));
         let folder = self.path.with_file_name("plugins");
         std::fs::create_dir_all(&folder)?;
-        let binary = folder.join(format!("lifeos-github-{sha256}"));
+        let binary = folder.join(format!("lifeos-{id}-{sha256}"));
         let mut staged = tempfile::NamedTempFile::new_in(&folder)?;
         use std::io::Write;
         staged.write_all(&body)?;
@@ -119,8 +190,17 @@ impl Plugins {
             binary,
             sha256,
             disabled: false,
-            args: vec![],
+            args: manifest
+                .storage
+                .into_iter()
+                .map(|s| match s {
+                    plugin_wire::plugin::Storage::VaultDatabase => "{lifeos_db}".into(),
+                    plugin_wire::plugin::Storage::SignalHistory => "{signal_history}".into(),
+                })
+                .collect(),
             functions: vec![],
+            vault_keys: vec![],
+            agents:vec![],automations:vec![],
             hooks: BTreeMap::new(),
             events: BTreeMap::new(),
             vars: Vars::new(),
@@ -131,15 +211,16 @@ impl Plugins {
         let _update = self.update.lock().await;
         let running = self.snapshot();
         let mut configs = configs(&self.path)?;
+        let installing = matches!(action, Action::Install);
         let config = match action {
             Action::Install => {
                 anyhow::ensure!(
-                    id == "github" && !configs.contains_key(id),
+                    identifier(id) && id != "telegram" && !configs.contains_key(id),
                     "Plugin is already installed or unavailable"
                 );
                 configs
                     .entry(id.to_owned())
-                    .or_insert(self.install_github()?)
+                    .or_insert(self.install_package(id)?)
             }
             Action::Enable | Action::Disable => {
                 let config = configs
@@ -149,18 +230,41 @@ impl Plugins {
                 config
             }
         };
-        let replacement = Arc::new(Installed::new(id, config.clone()));
+        if installing {
+            let staged = Installed::new(id, config.clone(), &self.path);
+            let manifest = staged
+                .manifest()
+                .await
+                .map_err(|(_, e)| anyhow::anyhow!(e))?;
+            anyhow::ensure!(
+                manifest == &self.package_manifest(id)?,
+                "Package declaration differs from executable"
+            );
+            for agent in &manifest.agents {
+                anyhow::ensure!(agent.lifeos_tools.iter().all(|name|lifeos_core::tools::spec(name).is_some()), "Unknown LifeOS tool requested by {}", agent.id);
+            }
+            for routine in &manifest.automations {
+                lifeos_core::life::routines::validate_plugin_trigger(routine.cron.as_deref(), &routine.on)?;
+            }
+            config.hooks = manifest.webhooks.iter().map(|(id,hook)| (id.clone(),Hook::Request{processor:hook.processor.clone(),headers:hook.headers.clone()})).collect();
+            config.agents.clone_from(&manifest.agents);
+            config.automations.clone_from(&manifest.automations);
+            config.functions = manifest.tools.iter().map(|t| t.name.clone()).collect();
+            config.vault_keys = manifest
+                .vars
+                .iter()
+                .filter(|v| v.vault)
+                .map(|v| v.name.clone())
+                .collect();
+        }
+        let replacement = Arc::new(Installed::new(id, config.clone(), &self.path));
         if !replacement.config.disabled {
             replacement
                 .manifest()
                 .await
                 .map_err(|(_, error)| anyhow::anyhow!(error))?;
         }
-        let folder = self.path.parent().expect("plugin config parent");
-        let mut staged = tempfile::NamedTempFile::new_in(folder)?;
-        serde_json::to_writer_pretty(&mut staged, &configs)?;
-        staged.as_file().sync_all()?;
-        staged.persist(&self.path)?;
+        self.persist_configs(&configs)?;
         self.entries
             .write()
             .expect("plugin registry lock")
@@ -171,11 +275,24 @@ impl Plugins {
         Ok(())
     }
 
+    fn persist_configs(&self, configs: &BTreeMap<String, Install>) -> anyhow::Result<()> {
+        Self::write_configs(&self.path, configs)
+    }
+
+    fn write_configs(path: &Path, configs: &BTreeMap<String, Install>) -> anyhow::Result<()> {
+        let folder = path.parent().expect("plugin config parent");
+        let mut staged = tempfile::NamedTempFile::new_in(folder)?;
+        serde_json::to_writer_pretty(&mut staged, &configs)?;
+        staged.as_file().sync_all()?;
+        staged.persist(path)?;
+        Ok(())
+    }
+
     pub(crate) async fn watch_changes(&self, mut changes: watch::Receiver<u64>) {
-        let mut event = "lifeos.started";
+        let mut event = STARTED;
         loop {
             let revision = *changes.borrow_and_update();
-            let body = if event == "lifeos.started" {
+            let body = if event == STARTED {
                 json!({})
             } else {
                 json!({ "revision": revision })
@@ -191,17 +308,19 @@ impl Plugins {
             if changes.changed().await.is_err() {
                 return;
             }
-            event = "lifeos.changed";
+            event = CHANGED;
         }
     }
 
     fn event(&self, key: String, body: Value, dedupe: String) -> crate::plugin_events::Event {
-        let subscribers = self
-            .snapshot()
-            .into_iter()
-            .filter(|(_, p)| !p.config.disabled)
-            .filter_map(|(id, p)| Some((id, p.config.events.get(&key)?.clone())))
-            .collect();
+        let mut subscribers=Vec::new();
+        for (id,plugin) in self.snapshot() {
+            if plugin.config.disabled {continue;}
+            if let Some(processor)=plugin.config.events.get(&key) {subscribers.push((id.clone(),processor.clone()));}
+            for routine in &plugin.config.automations {
+                if routine.on.contains(&key) {subscribers.push((id.clone(),format!("routine:{}",routine.id)));}
+            }
+        }
         crate::plugin_events::Event {
             key,
             body,
@@ -220,12 +339,22 @@ impl Plugins {
             .collect()
     }
 
-    async fn dispatch(&self) -> anyhow::Result<bool> {
+    async fn dispatch(&self,life:&lifeos_agent::SharedLife) -> anyhow::Result<bool> {
         let Some(job) = self.queue.next()? else {
             return Ok(false);
         };
         let mut emits = vec![];
-        if let Ok(plugin) = self.enabled(&job.plugin)
+        if let Some(local)=job.processor.strip_prefix("routine:") {
+            if self.enabled(&job.plugin).is_ok_and(|p|p.config.automations.iter().any(|r|r.id==local && r.on.contains(&job.key))) {
+                let id=lifeos_core::plugins::contribution_id(&job.plugin,local);
+                let result=life.lock().expect("life lock").queue_plugin_delivery(&id,&job.key,&job.id,&job.body);
+                if let Err(error)=result {
+                    tracing::warn!(%id,%error,"could not queue plugin routine");
+                    self.queue.retry(&job)?;
+                    return Ok(true);
+                }
+            }
+        } else if let Ok(plugin) = self.enabled(&job.plugin)
             && plugin.config.events.get(&job.key) == Some(&job.processor)
         {
             let reading = plugin_wire::plugin::ProcessedReading {
@@ -254,9 +383,9 @@ impl Plugins {
         Ok(true)
     }
 
-    pub(crate) async fn worker(&self) {
+    pub(crate) async fn worker(&self,life:&lifeos_agent::SharedLife) {
         loop {
-            match self.dispatch().await {
+            match self.dispatch(life).await {
                 Ok(true) => continue,
                 Ok(false) => {}
                 Err(error) => tracing::error!(%error, "plugin delivery queue failed"),
@@ -286,18 +415,28 @@ fn failed(error: link::Failure) -> ApiError {
 }
 
 impl Installed {
-    fn new(id: &str, config: Install) -> Self {
+    fn new(id: &str, config: Install, registry: &Path) -> Self {
         let remote = RemotePlugin::new(Spec {
             id: id.into(),
             binary: config.binary.clone(),
-            args: config.args.clone(),
+            args: config.resolved_args(registry),
             sha256: config.sha256.clone(),
         });
         Self {
+            home: registry.parent().unwrap().parent().unwrap().to_owned(),
             config,
             remote,
             manifest: OnceCell::new(),
         }
+    }
+
+    fn vars(&self) -> Result<Vars, ApiError> {
+        lifeos_core::plugins::runtime_vars(&self.home, &self.config, None).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Cannot access Vault credentials".into(),
+            )
+        })
     }
 
     async fn manifest(&self) -> Result<&Manifest, ApiError> {
@@ -329,7 +468,7 @@ impl Installed {
                 request_id,
                 reading,
                 params: params.into(),
-                vars: self.config.vars.clone(),
+                vars: self.vars()?,
             }),
         )
         .await
@@ -345,24 +484,47 @@ impl Installed {
 
 pub(super) async fn signals(State(state): State<Arc<HttpState>>) -> Result<Json<Value>, ApiError> {
     let plugins = &state.app.plugins;
+    let history_error = |error: anyhow::Error| {
+        tracing::error!(%error, "could not read signal history");
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Signal history unavailable".into(),
+        )
+    };
+    let mut signals = BTreeMap::from([
+        (STARTED.to_owned(), "When LifeOS starts".to_owned()),
+        (CHANGED.to_owned(), "When the LifeOS data revision changes".to_owned()),
+    ]);
     let mut subscriptions = Vec::new();
     for (id, plugin) in plugins.snapshot() {
+        if !plugin.config.disabled && let Ok(manifest) = plugin.manifest().await {
+            for (event,note) in &manifest.emits { signals.insert(format!("plugin.{id}.{event}"),note.clone()); }
+        }
+        for routine in &plugin.config.automations {
+            for event in &routine.on {
+                subscriptions.push(json!({"event":event,"plugin":id,"processor":routine.title,"enabled":!plugin.config.disabled}));
+            }
+        }
         for (event, processor) in &plugin.config.events {
+            signals
+                .entry(event.clone())
+                .or_insert_with(|| "Referenced by a subscription".into());
             subscriptions.push(json!({
                 "event": event, "plugin": id, "processor": processor,
                 "enabled": !plugin.config.disabled,
             }));
         }
     }
-    let events = plugins.queue.history().map_err(|error| {
-        tracing::error!(%error, "could not read signal history");
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Signal history unavailable".into(),
-        )
-    })?;
+    for event in plugins.queue.observed_keys().map_err(history_error)? {
+        signals.entry(event).or_insert_with(|| "Seen in event history".into());
+    }
+    let signals: Vec<_> = signals
+        .into_iter()
+        .map(|(event, note)| json!({ "event": event, "note": note }))
+        .collect();
+    let events = plugins.queue.history().map_err(history_error)?;
     Ok(Json(
-        json!({"subscriptions": subscriptions, "events": events, "error": plugins.error}),
+        json!({"routineEvents": lifeos_core::tools::routine_event_names(), "signals": signals, "subscriptions": subscriptions, "events": events, "error": plugins.error}),
     ))
 }
 
@@ -413,10 +575,11 @@ pub(super) async fn catalog(State(state): State<Arc<HttpState>>) -> Result<Json<
                             })
                         })
                         .filter(|slot| {
-                            matches!(slot.slot.as_str(), "page" | "dashboard")
+                            matches!(slot.slot.as_str(), "page" | "dashboard" | "sidebar")
                                 && identifier(&slot.id)
                                 && asset_path(&slot.expose)
-                                && slot.expose.ends_with(".html")
+                                && (slot.expose.ends_with(".html")
+                                    || slot.expose.ends_with(".json"))
                         })
                         .collect(),
                     enabled: true,
@@ -433,13 +596,57 @@ pub(super) async fn catalog(State(state): State<Arc<HttpState>>) -> Result<Json<
                 },
             }
         };
-        entries.push(entry);
+        let mut details = json!(entry);
+        if let Some(manifest) = plugin.manifest.get().filter(|_| !plugin.config.disabled) {
+            details["agents"] = json!(plugin.config.agents);
+            details["automations"] = json!(plugin.config.automations);
+            details["vault_keys"] = json!(manifest.vars.iter()
+                .filter(|var| var.vault)
+                .map(|var| &var.name)
+                .collect::<Vec<_>>());
+            details["emits"] = json!(manifest.emits);
+            details["description"] = json!(manifest.description);
+            details["capability"] = json!(manifest.capability);
+            details["processors"] = json!(
+                manifest
+                    .processors
+                    .iter()
+                    .map(|p| &p.label)
+                    .collect::<Vec<_>>()
+            );
+            details["has_settings"] = json!(
+                !manifest.vars.is_empty()
+                    || manifest
+                        .ui
+                        .iter()
+                        .flat_map(|ui| &ui.slots)
+                        .any(|s| s.slot == "settings")
+            );
+        }
+        entries.push(details);
     }
-    let available = if !snapshot.contains_key("github") && plugins.packaged_github().is_file() {
-        vec![json!({ "id": "github", "label": "GitHub" })]
+    let mut available = plugins.available(&snapshot);
+    let telegram = state.app.telegram.current();
+    if telegram.installed {
+        let manifest = lifeos_mcp::telegram::definition().manifest();
+        entries.push(json!({
+            "id": "telegram",
+            "label": manifest.label,
+            "description": manifest.description,
+            "capability": manifest.capability,
+            "has_settings": true,
+            "vault_keys": manifest.vars.iter().filter(|var| var.vault).map(|var| &var.name).collect::<Vec<_>>(),
+            "configured": state.app.telegram.configured(),
+            "chats": telegram.chats,
+            "enabled": telegram.enabled,
+            "functions": manifest.tools,
+            "slots": [],
+            "retrying_deliveries": 0,
+            "error": null,
+        }));
     } else {
-        vec![]
-    };
+        available.push(json!({"id":"telegram","label":"Telegram","manifest":lifeos_mcp::telegram::definition().manifest()}));
+    }
     Ok(Json(
         json!({ "plugins": entries, "available": available, "error": plugins.error }),
     ))
@@ -471,7 +678,12 @@ pub(super) async fn manage(
             "Plugin changes require a LifeOS request".into(),
         ));
     }
-    let revoked = if id == "github" && matches!(action, Action::Disable) {
+    if id == "telegram" {
+        state.app.telegram.change(action)?;
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    let disabling = matches!(action,Action::Disable);
+    let revoked = if id == "github" && disabling {
         state
             .app
             .life
@@ -488,6 +700,7 @@ pub(super) async fn manage(
         .change(&id, action)
         .await
         .map_err(|error| (StatusCode::CONFLICT, error.to_string()))?;
+    if disabling { state.app.agents.stop_plugin_agents(&id); }
     if !revoked.is_empty() {
         state.app.agents.revoke_connections(&revoked);
     }
@@ -521,7 +734,7 @@ pub(super) async fn call(
     };
     let result = plugin
         .remote
-        .call(request, tool, input.arguments, plugin.config.vars.clone())
+        .call(request, tool, input.arguments, plugin.vars()?)
         .await
         .map_err(failed)?;
     Ok(Json(json!({ "result": result })))
@@ -642,4 +855,20 @@ mod tests {
         assert_eq!(asset_mime("styles.css", "").unwrap().as_ref(), "text/css");
         assert!(asset_mime("bundle", "invalid type").is_err());
     }
+}
+
+#[path = "plugin_settings.rs"]
+mod settings;
+pub(crate) use settings::{settings_save, settings_view};
+
+pub(super) async fn manifest_view(
+    State(state): State<Arc<HttpState>>,
+    Route(id): Route<String>,
+) -> Result<Json<Value>, ApiError> {
+    if id == "telegram" && state.app.telegram.current().enabled {
+        return Ok(Json(json!(lifeos_mcp::telegram::definition().manifest())));
+    }
+    Ok(Json(json!(
+        state.app.plugins.enabled(&id)?.manifest().await?
+    )))
 }

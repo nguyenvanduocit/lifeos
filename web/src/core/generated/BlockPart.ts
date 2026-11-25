@@ -7,4 +7,4 @@ import type { ChartSeries } from "./ChartSeries";
  * One part of a block. A new kind is a new variant: stored blocks keep reading. Externally tagged (`{"choice": {…}}`),
  * as postcard needs.
  */
-export type BlockPart = { "choice": { id: string, label: string, options: Array<BlockOption>, many: boolean, picked: Array<string>, } } | { "chart": { id: string, label: string, kind: ChartKind, x: Array<string>, series: Array<ChartSeries>, unit: string | null, } };
+export type BlockPart = { "choice": { id: string, label: string, options: Array<BlockOption>, many: boolean, picked: Array<string>, } } | { "chart": { id: string, label: string, kind: ChartKind, x: Array<string>, series: Array<ChartSeries>, unit: string | null, } } | { "ui": { id: string, document: string, } };

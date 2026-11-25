@@ -166,6 +166,8 @@ pub enum BlockPart {
         #[serde(default)]
         unit: Option<String>,
     },
+    /// Validated LifeOS component tree encoded as JSON for the binary transport.
+    Ui { id: String, document: String },
 }
 
 /// An option of a choice; `detail` is a line that compares it with the others.

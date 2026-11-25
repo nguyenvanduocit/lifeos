@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { CustomWidget } from '../core/generated/CustomWidget'
+import { computed, onErrorCaptured, ref, watch } from 'vue'
+import { resolveUi, uiProps } from '../jsonUi'
 import type { WidgetUi } from '../core/generated/WidgetUi'
 import AskChip from './AskChip.vue'
 import WidgetDataView from './WidgetDataView.vue'
 
-const props = defineProps<{ elementId: string; elements: WidgetUi['elements']; widget: CustomWidget }>()
+const props = defineProps<{ elementId: string; elements: WidgetUi['elements']; scope?: Record<string, unknown>; widget: { id: number | string; page: string } }>()
 const node = computed(() => props.elements[props.elementId])
+const error = ref('')
+watch(node, () => { error.value = '' })
+onErrorCaptured((reason) => {
+  error.value = reason instanceof Error ? reason.message : String(reason)
+  return false
+})
 const slots = ['header', 'body', 'actions', 'footer'] as const
 const slotStyle = {
   header: 'flex flex-wrap items-center gap-2',
@@ -22,17 +28,23 @@ const gridStyle: Record<number, string> = {
 </script>
 
 <template>
-  <template v-if="node">
-    <section v-if="node.component === 'section'" class="min-w-0 space-y-3">
+  <p v-if="error" role="alert" class="text-sm text-critical">Component {{ elementId }}: {{ error }}</p>
+  <template v-else-if="node">
+    <component v-if="node.component === 'shadcn'" :is="resolveUi(node.name)" v-bind="uiProps(node.name, node.props, scope)">
+      <template v-for="(ids, slotName) in node.slots" #[slotName]="slotProps">
+        <WidgetUiNode v-for="id in ids" :key="id" :element-id="id" :elements="elements" :widget="widget" :scope="{ ...scope, ...slotProps }" />
+      </template>
+    </component>
+    <section v-else-if="node.component === 'section'" class="min-w-0 space-y-3">
       <template v-for="slot in slots" :key="slot">
         <div v-if="node[slot]?.length" :class="slotStyle[slot]" :data-ui-slot="slot">
-          <WidgetUiNode v-for="id in node[slot]" :key="id" :element-id="id" :elements="elements" :widget="widget" />
+          <WidgetUiNode v-for="id in node[slot]" :key="id" :element-id="id" :elements="elements" :widget="widget" :scope="scope" />
         </div>
       </template>
     </section>
     <div v-else-if="node.component === 'stack' || node.component === 'row' || node.component === 'grid'"
       class="min-w-0 gap-3" :class="node.component === 'row' ? 'flex flex-wrap items-start' : ['grid', node.component === 'grid' ? gridStyle[node.columns] : '']">
-      <WidgetUiNode v-for="id in node.children" :key="id" :element-id="id" :elements="elements" :widget="widget" />
+      <WidgetUiNode v-for="id in node.children" :key="id" :element-id="id" :elements="elements" :widget="widget" :scope="scope" />
     </div>
     <h3 v-else-if="node.component === 'heading'" class="break-words text-sm font-semibold">{{ node.text }}</h3>
     <p v-else-if="node.component === 'text'" class="whitespace-pre-wrap break-words text-sm leading-relaxed">{{ node.text }}</p>

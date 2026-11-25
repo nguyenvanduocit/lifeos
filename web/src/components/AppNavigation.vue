@@ -4,6 +4,7 @@
 import { computed } from 'vue'
 import { DOMAINS } from '../domains'
 import { useRead } from '../data'
+import { sidebarPages } from '../plugins'
 import { PAGES } from '../router'
 
 const props = defineProps<{ settings?: boolean }>()
@@ -11,7 +12,9 @@ defineEmits<{ navigate: [] }>()
 
 const groups = computed(() => {
   const titles = [...new Set(PAGES.map((page) => page.group))].filter((t) => (t === 'Settings') === !!props.settings)
-  return titles.map((title) => ({ title, pages: PAGES.filter((page) => page.group === title) }))
+  const builtIn = titles.map(title => ({ title, pages: PAGES.filter(page => page.group === title) }))
+  if (props.settings || !sidebarPages.value.length) return builtIn
+  return [...builtIn, { title: 'Plugins', pages: sidebarPages.value }]
 })
 
 const { data: d } = useRead('dashboard')

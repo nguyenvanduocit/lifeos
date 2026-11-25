@@ -17,3 +17,7 @@ serde_json = "1"
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["io-std", "io-util", "macros", "rt-multi-thread", "sync", "time"] }
 wire = { package = "lifeos-plugin-wire", path = "../lifeos-plugin-wire" }
+rusqlite = { version = "0.43.0", features = ["bundled"], optional = true }
+
+[features]
+storage = ["dep:rusqlite"]

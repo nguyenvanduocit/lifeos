@@ -72,7 +72,7 @@ pub enum WidgetUi {
     Ui {
         /// ID of the first component to render.
         root: String,
-        /// Components by ID. Each ID appears once in the tree. At most 48 elements and six levels.
+        /// Components by ID. Each ID appears once in the tree. At most 256 elements and 24 levels.
         elements: BTreeMap<String, WidgetElement>,
     },
 }
@@ -81,6 +81,16 @@ pub enum WidgetUi {
 #[serde(tag = "component", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub enum WidgetElement {
+    /// Render a named shadcn-vue export (e.g. Tabs, TabsList, TabsTrigger, TabsContent)
+    /// or Graph. Props are JSON, slots map Vue slot names to ordered element IDs.
+    Shadcn {
+        name: String,
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
+        props: BTreeMap<String, serde_json::Value>,
+        #[serde(default)]
+        slots: BTreeMap<String, Vec<String>>,
+    },
     /// A vertical group of component IDs.
     Stack {
         children: Vec<String>,
@@ -125,21 +135,29 @@ pub enum WidgetElement {
     },
 }
 
+pub fn ui_catalog() -> &'static BTreeMap<String, String> {
+    static CATALOG: std::sync::LazyLock<BTreeMap<String, String>> =
+        std::sync::LazyLock::new(|| serde_json::from_str(include_str!(
+            "../../../../web/src/components/ui-catalog.json"
+        )).expect("component catalog"));
+    &CATALOG
+}
+
 impl WidgetUi {
-    fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         let Self::Ui { root, elements } = self;
         ensure!(
-            (1..=48).contains(&elements.len()),
-            "A UI widget needs 1–48 components"
+            (1..=256).contains(&elements.len()),
+            "A UI widget needs 1–256 components"
         );
         ensure!(
-            serde_json::to_vec(self)?.len() <= 16_384,
-            "UI widget exceeds 16 KiB"
+            serde_json::to_vec(self)?.len() <= 65_536,
+            "UI widget exceeds 64 KiB"
         );
         let mut queue = vec![(root.clone(), 1)];
         let mut seen = HashSet::new();
         while let Some((id, depth)) = queue.pop() {
-            ensure!(depth <= 6, "A UI widget may be at most six levels deep");
+            ensure!(depth <= 24, "A UI widget may be at most 24 levels deep");
             ensure!(!id.is_empty() && id.len() <= 64, "Invalid component ID");
             ensure!(
                 seen.insert(id.clone()),
@@ -154,6 +172,10 @@ impl WidgetUi {
             match element {
                 WidgetElement::Stack { children } | WidgetElement::Row { children } => {
                     add(children)
+                }
+                WidgetElement::Shadcn { name, slots, .. } => {
+                    ensure!(ui_catalog().contains_key(name), "Unknown UI component {name}");
+                    for children in slots.values() { add(children); }
                 }
                 WidgetElement::Grid { columns, children } => {
                     ensure!(

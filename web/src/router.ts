@@ -24,8 +24,11 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     ...PAGES.map((p) => ({ path: p.path, component: p.component, meta: { title: p.name, domain: p.domain } })),
+    { path: '/plugins/:plugin/:slot', component: () => import('./pages/PluginPage.vue'), meta: { title: 'Plugin', domain: 'integrations' } },
     { path: '/plugins', redirect: '/connections/plugins' },
     { path: '/connections/plugins', component: () => import('./pages/Plugins.vue'), meta: { title: 'Plugins', domain: 'integrations' } },
+    { path: '/connections/paypal', redirect: '/connections/plugins/paypal/settings' },
+    { path: '/connections/plugins/:plugin/settings', component: () => import('./pages/PluginSettings.vue'), meta: { title: 'Plugin settings', domain: 'integrations' } },
     { path: '/connections/google', component: () => import('./pages/Google.vue'), meta: { title: 'Google', domain: 'integrations' } },
     { path: '/connections/desktop', component: () => import('./pages/Desktop.vue'), meta: { title: 'Desktop', domain: 'integrations' } },
     { path: '/connections/vault', component: () => import('./pages/Vault.vue'), meta: { title: 'Vault', domain: 'integrations' } },

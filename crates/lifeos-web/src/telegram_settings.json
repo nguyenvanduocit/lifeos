@@ -1,0 +1,1 @@
+{"version":1,"description":"Save the token, then send /start to your bot to find your chat ID. Add that ID here to talk to the Assistant.","fields":[{"key":"token","label":"Bot token from @BotFather","type":"secret","required":true},{"key":"chats","label":"Allowed chat IDs (comma-separated)","type":"text"}]}

@@ -16,7 +16,7 @@ import PageHeader from '../components/ds/PageHeader.vue'
 import StatStrip from '../components/ds/StatStrip.vue'
 import Panel from '../components/ds/Panel.vue'
 import { plugins } from '../plugins'
-import PluginFrame from '../components/PluginFrame.vue'
+import PluginSlotView from '../components/PluginSlotView.vue'
 import WidgetSlot from '../components/WidgetSlot.vue'
 import TableHead from '../components/ds/TableHead.vue'
 import StatusTag from '../components/ds/StatusTag.vue'
@@ -264,7 +264,7 @@ const taskCols = computed(() => [
     </div>
   </template>
   <template v-for="plugin in plugins" :key="plugin.id">
-    <PluginFrame v-for="slot in plugin.slots.filter((s) => s.slot === 'dashboard')" :key="slot.id" :plugin="plugin" :slot="slot" class="mt-4" />
+    <PluginSlotView v-for="slot in plugin.slots.filter((s) => s.slot === 'dashboard')" :key="slot.id" :plugin="plugin" :slot="slot" class="mt-4" />
   </template>
 </template>
 

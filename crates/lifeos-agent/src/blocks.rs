@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
+use lifeos_core::life::widgets::WidgetUi;
 use lifeos_core::life::cards::{NewEvent, now};
 use lifeos_wire::{Block, BlockOption, BlockPart, BlockSpec, Delivery, EventKind};
 use serde::Deserialize;
@@ -81,6 +82,12 @@ fn schema() -> Map<String, Value> {
     });
     let part = json!({
         "oneOf": [
+            { "type": "object", "additionalProperties": false, "required": ["ui"], "properties": {
+                "ui": {"type":"object","required":["id","document"],"additionalProperties":false,"properties":{
+                    "id": text("Unique within the block."),
+                    "document": lifeos_core::tools::schema_of::<WidgetUi>()
+                }}
+            }},
             { "type": "object", "additionalProperties": false, "required": ["choice"], "properties": { "choice": choice } },
             { "type": "object", "additionalProperties": false, "required": ["chart"], "properties": { "chart": chart } }
         ]
@@ -92,7 +99,7 @@ fn schema() -> Map<String, Value> {
             "required": ["title", "parts"],
             "properties": {
                 "title": text("What the block is about, in a few words."),
-                "parts": { "type": "array", "minItems": 1, "items": part, "description": "Each part is {\"choice\": …} or {\"chart\": …}." }
+                "parts": { "type": "array", "minItems": 1, "items": part, "description": "Each part contains a choice, chart, or ui." }
             }
         }
     });
@@ -111,7 +118,7 @@ impl Inner {
             &format!(
                 "Show the owner a block in your stream: options laid side by side (a `choice`, each option with a line of \
                  `detail` that compares it) or numbers drawn as a `chart` (bar or line, one value per label of `x` in each \
-                 series). A block never waits: set `picked` to the option you go ahead with, and go on. When the owner picks \
+                 series), or a JSON component tree (ui with id and document; use list_ui_components for names). A block never waits: set `picked` to the option you go ahead with, and go on. When the owner picks \
                  another, you get his pick as a message from him, which you act on in your next turn. What the work cannot \
                  go on without is no block: ask it (ask_owner, or in your answer). A table needs no block: write it in \
                  Markdown. Labels are plain text. At most {MOST_BYTES} bytes as JSON. Answers the block's event id."
@@ -122,7 +129,16 @@ impl Inner {
                 let (weak, me) = (weak.clone(), me.clone());
                 Box::pin(async move {
                     let i = weak.upgrade().context("lifeos stopped")?;
-                    let input: ShowBlockInput = serde_json::from_value(Value::Object(args))?;
+                    let mut args = Value::Object(args);
+                    if let Some(parts) = args.pointer_mut("/spec/parts").and_then(Value::as_array_mut) {
+                        for part in parts {
+                            if let Some(doc) = part.pointer_mut("/ui/document") {
+                                let ui: WidgetUi = serde_json::from_value(doc.take())?;
+                                *doc = Value::String(serde_json::to_string(&ui)?);
+                            }
+                        }
+                    }
+                    let input: ShowBlockInput = serde_json::from_value(args)?;
                     let id = i.show_block(&me, input.spec)?;
                     Ok(format!(
                         "Shown as block {id}. Go on with what you picked: a change of the owner's reaches you as his message."
@@ -220,6 +236,11 @@ pub(crate) fn check_block(spec: &BlockSpec) -> std::result::Result<(), String> {
                 }
                 picks_fit(options, *many, picked).map_err(|why| format!("{at}.picked: {why}"))?;
             }
+            BlockPart::Ui { id, document } => {
+                unique(&mut ids, &format!("{at}.id"), id)?;
+                let ui: WidgetUi = serde_json::from_str(document).map_err(|e| format!("{at}.document: {e}"))?;
+                ui.validate().map_err(|e| format!("{at}.document: {e}"))?;
+            }
             BlockPart::Chart { id, label, x, series, .. } => {
                 unique(&mut ids, &format!("{at}.id"), id)?;
                 named(&format!("{at}.label"), label)?;
@@ -306,7 +327,7 @@ pub(crate) fn pick_words(spec: &BlockSpec) -> String {
                 let pick = if labels.is_empty() { "none of them".to_owned() } else { labels.join(", ") };
                 Some(format!("for \"{label}\" I pick: {pick}"))
             }
-            BlockPart::Chart { .. } => None,
+            BlockPart::Chart { .. } | BlockPart::Ui { .. } => None,
         })
         .collect();
     let go_on = if picks.len() == 1 { "Go on with this pick." } else { "Go on with these picks." };

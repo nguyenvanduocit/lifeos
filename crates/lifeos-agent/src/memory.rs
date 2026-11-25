@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::PoisonError;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use lifeos_wire::Memory;
 use openrouter::OpenRouter;
 use serde_json::{Map, Value};
@@ -65,21 +65,57 @@ pub fn key_file(home: &std::path::Path) -> PathBuf {
         .unwrap_or_else(|| home.join(".lifeos").join("openrouter.key"))
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct ModelSettings {
+    pub openrouter_enabled: bool,
+    pub embedding_model: String,
+    pub rerank_model: String,
+    pub decision_model: Option<String>,
+}
+
+impl Default for ModelSettings {
+    fn default() -> Self {
+        Self {
+            openrouter_enabled: true,
+            embedding_model: recall::EMBED_MODEL.into(),
+            rerank_model: recall::RERANK_MODEL.into(),
+            decision_model: None,
+        }
+    }
+}
+
+impl ModelSettings {
+    pub(crate) fn load(home: &std::path::Path) -> Result<Self> {
+        let path = home.join(".lifeos/memory.json");
+        let bytes = match std::fs::read(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            result => result.with_context(|| format!("reading {}", path.display()))?,
+        };
+        let settings: Self = serde_json::from_slice(&bytes).with_context(|| format!("parsing {}", path.display()))?;
+        for model in [Some(&settings.embedding_model), Some(&settings.rerank_model), settings.decision_model.as_ref()].into_iter().flatten() {
+            ensure!(!model.is_empty() && !model.contains(char::is_whitespace), "invalid model ID in {}", path.display());
+        }
+        Ok(settings)
+    }
+}
+
 /// The models memory reads meaning and relevance with.
 pub(crate) struct Models {
+    pub(crate) settings: ModelSettings,
     client: Option<OpenRouter>,
     key_file: PathBuf,
 }
 
 impl Models {
-    pub(crate) fn new(key_file: PathBuf, base: Option<String>) -> Self {
+    pub(crate) fn new(key_file: PathBuf, base: Option<String>, settings: ModelSettings) -> Self {
         let client = match base {
             Some(base) => OpenRouter::at(key_file.clone(), base),
             None => OpenRouter::new(key_file.clone()),
         }
             .map_err(|err| tracing::warn!("memory: no OpenRouter client: {err}"))
             .ok();
-        Self { client, key_file }
+        Self { client, key_file, settings }
     }
 
     /// The client, when a key is written.
@@ -89,7 +125,7 @@ impl Models {
 
     /// Whether a key is written: with none, memory works by words alone, as it did before meaning.
     fn keyed(&self) -> bool {
-        self.client.is_some() && std::fs::read_to_string(&self.key_file).is_ok_and(|k| !k.trim().is_empty())
+        self.settings.openrouter_enabled && self.client.is_some() && std::fs::read_to_string(&self.key_file).is_ok_and(|k| !k.trim().is_empty())
     }
 }
 
@@ -209,14 +245,14 @@ impl Inner {
     async fn meaning_of(&self, holder: &str, texts: &[String]) -> Vec<Vec<(i64, f32)>> {
         let Some(client) = &self.models.client else { return Vec::new() };
         let q: Vec<String> = texts.iter().map(|t| format!("{}{t}", recall::QUERY_INSTRUCTION)).collect();
-        let vectors = match client.embed(recall::EMBED_MODEL, &q).await {
+        let vectors = match client.embed(&self.models.settings.embedding_model, &q).await {
             Ok(v) => v,
             Err(err) => {
                 said("embed a query", &err);
                 return Vec::new();
             }
         };
-        let held = self.life().memory_vectors(holder, recall::EMBED_MODEL).unwrap_or_default();
+        let held = self.life().memory_vectors(holder, &self.models.settings.embedding_model).unwrap_or_default();
         vectors.iter().map(|qv| recall::nearest(qv, &held)).collect()
     }
 
@@ -234,7 +270,7 @@ impl Inner {
             .iter()
             .filter_map(|c| readable.get(&c.id).map(|m| (c.id, lifeos_core::life::memory::passage(m))))
             .unzip();
-        match client.rerank(recall::RERANK_MODEL, query, &docs).await {
+        match client.rerank(&self.models.settings.rerank_model, query, &docs).await {
             Ok(scores) => Some(ids.into_iter().zip(scores).collect()),
             Err(err) => {
                 said("judge relevance", &err);
@@ -328,7 +364,7 @@ impl Inner {
             return 0;
         }
         let Some(client) = &self.models.client else { return 0 };
-        let todo = match self.life().unembedded(recall::EMBED_MODEL, EMBED_PASS) {
+        let todo = match self.life().unembedded(&self.models.settings.embedding_model, EMBED_PASS) {
             Ok(t) => t,
             Err(err) => {
                 tracing::warn!("memory: could not read what to embed: {err:#}");
@@ -339,12 +375,19 @@ impl Inner {
             return 0;
         }
         let texts: Vec<String> = todo.iter().map(|(_, p, _)| p.clone()).collect();
-        let vectors = match client.embed(recall::EMBED_MODEL, &texts).await {
+        let vectors = match client.embed(&self.models.settings.embedding_model, &texts).await {
             Ok(v) => v.into_iter().map(Some).collect(),
-            Err(openrouter::Error::Status { status, .. }) if (400..500).contains(&status) && status != 429 => {
+            Err(openrouter::Error::Status { status, .. }) if matches!(status, 400 | 413 | 422) => {
                 let mut one_by_one = Vec::new();
                 for t in &texts {
-                    one_by_one.push(client.embed(recall::EMBED_MODEL, std::slice::from_ref(t)).await.ok().and_then(|mut v| v.pop()));
+                    match client.embed(&self.models.settings.embedding_model, std::slice::from_ref(t)).await {
+                        Ok(mut v) => one_by_one.push(v.pop()),
+                        Err(openrouter::Error::Status { status: 400 | 413 | 422, .. }) => one_by_one.push(None),
+                        Err(err) => {
+                            said("embed a memory", &err);
+                            break;
+                        }
+                    }
                 }
                 one_by_one
             }
@@ -357,8 +400,8 @@ impl Inner {
         let mut kept = 0;
         for ((id, _, hash), v) in todo.iter().zip(vectors) {
             let done = match v {
-                Some(v) => life.keep_vector(*id, recall::EMBED_MODEL, hash, &v).map(usize::from),
-                None => life.refused_vector(*id, recall::EMBED_MODEL, hash).map(|()| 0),
+                Some(v) => life.keep_vector(*id, &self.models.settings.embedding_model, hash, &v).map(usize::from),
+                None => life.refused_vector(*id, &self.models.settings.embedding_model, hash).map(|()| 0),
             };
             match done {
                 Ok(n) => kept += n,
@@ -387,6 +430,21 @@ pub(crate) fn keep_embedding(inner: std::sync::Weak<Inner>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disabling_openrouter_overrides_a_present_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let private = dir.path().join(".lifeos");
+        std::fs::create_dir(&private).unwrap();
+        let key = private.join("openrouter.key");
+        std::fs::write(&key, "fixture").unwrap();
+        let config = private.join("memory.json");
+        std::fs::write(&config, r#"{"openrouter_enabled":false}"#).unwrap();
+        let settings = ModelSettings::load(dir.path()).unwrap();
+        assert!(Models::new(key, None, settings).client().is_none());
+        std::fs::write(config, r#"{"embedding_model":""}"#).unwrap();
+        assert!(ModelSettings::load(dir.path()).is_err());
+    }
 
     #[test]
     fn a_moment_reads_the_words_of_a_call() {
@@ -457,6 +515,7 @@ mod tests {
         }
 
         async fn embeddings(Json(req): Json<Value>) -> Json<Value> {
+            assert_eq!(req["model"], "fixture/vector");
             let data: Vec<Value> = req["input"]
                 .as_array()
                 .unwrap()
@@ -468,6 +527,7 @@ mod tests {
         }
 
         async fn rerank(Json(req): Json<Value>) -> Json<Value> {
+            assert_eq!(req["model"], "fixture/rerank");
             let q = vector(req["query"].as_str().unwrap());
             let results: Vec<Value> = req["documents"]
                 .as_array()
@@ -485,7 +545,12 @@ mod tests {
 
         #[tokio::test]
         async fn a_turn_is_given_what_the_judge_finds_by_meaning_not_only_by_words() {
-            let app = axum::Router::new().route("/v1/embeddings", post(embeddings)).route("/v1/rerank", post(rerank));
+            async fn decisions(Json(req): Json<Value>) -> Json<Value> {
+                assert_eq!(req["model"], "typesafe/jev-1.14");
+                assert_eq!(req["questions"]["same"]["type"], "noul");
+                Json(json!({"model":"fixture","answers":{"same":{"type":"noul","noul":0.01},"conflict":{"type":"noul","noul":0.01}}}))
+            }
+            let app = axum::Router::new().route("/alpha/decisions", post(decisions)).route("/v1/embeddings", post(embeddings)).route("/v1/rerank", post(rerank));
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let base = format!("http://{}", listener.local_addr().unwrap());
             tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -493,6 +558,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             std::fs::create_dir_all(dir.path().join(".lifeos")).unwrap();
             std::fs::write(dir.path().join(".lifeos/openrouter.key"), "k").unwrap();
+            std::fs::write(dir.path().join(".lifeos/memory.json"), r#"{"embedding_model":"fixture/vector","rerank_model":"fixture/rerank","decision_model":"typesafe/jev-1.14"}"#).unwrap();
             let life = Life::open_with_memory_db(dir.path()).unwrap();
             let fact = |title: &str| Remember {
                 kind: MemoryKind::Fact,
@@ -506,9 +572,9 @@ mod tests {
             let config = AgentsConfig { openrouter_base: Some(base), ..Default::default() };
             let agents = Agents::start(Arc::new(Mutex::new(life)), config).await.unwrap();
             let i = &agents.inner;
-            while !i.life().unembedded(crate::recall::EMBED_MODEL, 10).unwrap().is_empty() {
-                i.embed_pass().await;
-            }
+            i.embed_pass().await;
+            assert!(i.life().unembedded("fixture/vector", 10).unwrap().is_empty());
+            assert!(i.same_claims(ASSISTANT, "hoa lan").await.is_empty());
 
             // No word in common with "Mẹ thích hoa lan" but "sinh nhật": meaning and the judge find it, not running.
             let got = i.recall_for_turn(ASSISTANT, "Sắp sinh nhật mẹ, nên tặng gì?").await;

@@ -58,6 +58,7 @@ import type { Workflows } from "./Workflows";
 
 export interface ReadTools {
   dashboard: { input: Day; output: Dashboard };
+  list_ui_components: { input: Nothing; output: Array<string> };
   list_widgets: { input: ListWidgets; output: Array<CustomWidget> };
   search: { input: Search; output: Array<SearchHit> };
   read_doc: { input: DocId; output: DocFull };

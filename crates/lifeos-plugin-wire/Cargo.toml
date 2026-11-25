@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+serde_json.workspace = true
+schemars = "1.2.3"
 grant = { path = "../grant" }
 link = { path = "../link" }
 model = { path = "../model" }

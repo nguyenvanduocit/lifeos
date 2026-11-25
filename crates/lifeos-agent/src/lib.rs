@@ -185,18 +185,31 @@ pub(crate) struct Inner {
 }
 
 impl Agents {
+    /// Effective memory configuration, including whether a key is available now.
+    pub fn memory_models(&self) -> serde_json::Value {
+        serde_json::json!({
+            "settings": &self.inner.models.settings,
+            "remote_active": self.inner.models.client().is_some(),
+        })
+    }
+
     /// Starts the agents' MCP door. Sessions open on each agent's first message.
     pub async fn start(life: SharedLife, config: AgentsConfig) -> Result<Agents> {
         let accounts =
             config.accounts.clone().unwrap_or_else(|| AccountPool::new(life.clone(), config.on_change.clone()));
-        let (hide, key_file, google): (Vec<String>, _, _) = {
+        let (hide, key_file, google, memory_settings): (Vec<String>, _, _, _) = {
             let life = life.lock().unwrap_or_else(PoisonError::into_inner);
-            let hide = life.private_paths()?.iter().map(|p| p.display().to_string()).collect();
+            let mut hide: Vec<_> = life.private_paths()?.iter().map(|p| p.display().to_string()).collect();
+            let key_file = std::path::absolute(memory::key_file(life.home()))?;
+            hide.push(key_file.display().to_string());
+            if let Ok(target) = key_file.canonicalize() {
+                hide.push(target.display().to_string());
+            }
             let google = match &config.google {
                 Some(g) => Arc::clone(g),
                 None => Arc::new(Google::new(life.google_dir()?)),
             };
-            (hide, memory::key_file(life.home()), google)
+            (hide, key_file, google, memory::ModelSettings::load(life.home())?)
         };
         let telemetry = {
             let life = life.lock().unwrap_or_else(PoisonError::into_inner);
@@ -206,7 +219,7 @@ impl Agents {
             Some(Launch(l)) => Arc::clone(l),
             None => Arc::new(accounts.launcher(hide)),
         };
-        let models = memory::Models::new(key_file, config.openrouter_base.clone());
+        let models = memory::Models::new(key_file, config.openrouter_base.clone(), memory_settings);
         let inner = Arc::new(Inner {
             life,
             config,
@@ -486,6 +499,12 @@ impl Agents {
         }
     }
 
+    pub fn stop_plugin_agents(&self, plugin:&str) {
+        let prefix=format!("plugin.{plugin}.");
+        let runs:Vec<_>=self.inner.runs.lock().unwrap_or_else(PoisonError::into_inner).values().filter(|r|r.card.starts_with(&prefix)).cloned().collect();
+        for run in runs {run.stop(&self.inner);}
+    }
+
     /// Closes every session.
     pub fn close(&self) {
         let runs: Vec<Arc<Run>> = self.inner.runs.lock().unwrap_or_else(PoisonError::into_inner).values().cloned().collect();
@@ -517,6 +536,18 @@ impl Opens for DoorOpens {
             Server::Google => inner.google_toolbox(&card).ok().flatten(),
             Server::Desktop => inner.desktop_toolbox(&card).ok().flatten(),
         }
+    }
+
+    fn plugin_home(&self, token: &str, id:&str) -> Option<(std::path::PathBuf,String)> {
+        let inner = self.0.upgrade()?;
+        let card = inner.tokens.card_of(token)?;
+        let home = inner.life().home().to_owned();
+        if card != ASSISTANT {
+            let installs = lifeos_core::plugins::configs(&home.join(".lifeos/plugins.json")).ok()?;
+            let plugin = installs.get(id).filter(|p|!p.disabled)?;
+            plugin.agent(id,&card)?;
+        }
+        Some((home,card))
     }
 
     fn telemetry(&self, token: &str) -> Option<(String, otel::Store)> {
@@ -770,6 +801,29 @@ impl Inner {
         let bearer = BTreeMap::from([("Authorization".to_owned(), format!("Bearer {token}"))]);
         let mut mcp = vec![agent::MCPServer { name: door::SERVER_NAME.into(), url: door_url.clone(), headers: bearer.clone() }];
         let door_root = door_url.strip_suffix(door::PATTERN).unwrap_or(&door_url);
+        if card.id != LIBRARIAN {
+            if card.id == ASSISTANT && lifeos_mcp::telegram::channel(&home).is_ok_and(|c| c.installed && c.enabled) && !outside.contains_key("plugin_telegram") {
+                mcp.push(agent::MCPServer { name:"plugin_telegram".into(), url:format!("{door_root}/plugins/telegram"), headers:bearer.clone() });
+            }
+            match lifeos_core::plugins::configs(&home.join(".lifeos/plugins.json")) {
+                Ok(installs) => {
+                    for (id, install) in installs {
+                        if install.disabled || install.functions.is_empty() || (card.id != ASSISTANT && install.agent(&id,&card.id).is_none()) {
+                            continue;
+                        }
+                        let name = format!("plugin_{id}");
+                        if outside.contains_key(&name) {
+                            tracing::warn!(%name, "plugin MCP name already used by a configured connection");
+                            continue;
+                        }
+                        mcp.push(agent::MCPServer {
+                            name, url: format!("{door_root}/plugins/{id}"), headers: bearer.clone(),
+                        });
+                    }
+                }
+                Err(error) => tracing::warn!(%error, "unable to load plugin MCP servers"),
+            }
+        }
         if self.may_use_google(&card.id, member.as_ref()) && self.google.signed_in() {
             mcp.push(agent::MCPServer {
                 name: lifeos_core::life::google::CONNECTION.into(),
@@ -821,7 +875,7 @@ impl Inner {
             outside,
             allowed_tools: allowed,
             deny_tools: deny,
-            tools: Some(if card.id == LIBRARIAN {
+            tools: Some(if card.id == LIBRARIAN || card.id.starts_with("plugin.") {
                 Vec::new()
             } else {
                 BUILTIN_TOOLS.iter().map(|t| (*t).to_owned()).collect()

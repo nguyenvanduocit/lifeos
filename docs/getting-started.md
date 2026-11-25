@@ -54,7 +54,9 @@ Under **Tích hợp → Tài khoản**, the machine’s Claude login is listed a
 
 ## Telegram and MCP
 
-Set `LIFEOS_TELEGRAM_TOKEN` in the process environment and run `./target/release/lifeos telegram`. With an empty allowlist, the bot replies with the chat ID. Send it a message to get your ID, then set `LIFEOS_TELEGRAM_ALLOWED_CHATS` to a comma-separated list of allowed IDs and restart the bot.
+In the web app, open **Integrations → Plugins**, install **Telegram**, and open **Details**. Save your @BotFather token, send `/start` to the bot to get your chat ID, then add the ID to **Allowed chat IDs** and save. Messages in that chat now reach the same Assistant as the web app. Disable the plugin to stop polling. Run only one poller per token.
+
+For the standalone CLI, set `LIFEOS_TELEGRAM_TOKEN` in the process environment and run `./target/release/lifeos telegram`. With an empty allowlist, the bot replies with the chat ID. Send it a message to get your ID, then set `LIFEOS_TELEGRAM_ALLOWED_CHATS` to a comma-separated list of allowed IDs and restart the bot.
 
 Register the MCP server over stdio from the repository root:
 
@@ -79,3 +81,20 @@ To use a different vault, add `--home "$HOME/my-lifeos-vault"` before `mcp` in t
 | `LIFEOS_SECRETS_DIR` | Optional absolute directory outside the vault folder for the Vault's passwords and keys |
 | `LIFEOS_GOOGLE_DIR` | Optional absolute directory outside the vault for the Google OAuth client and sign-in |
 | `LIFEOS_ACCOUNTS_DIR` | Optional absolute directory outside the vault for isolated Claude profiles |
+
+### Memory models
+
+LifeOS reads `<vault>/.lifeos/memory.json` when the agent service starts. To enable OpenRouter retrieval and optional Jev review, save this file, put the OpenRouter API key in `<vault>/.lifeos/openrouter.key`, and restart LifeOS. The key file can also be selected with `LIFEOS_OPENROUTER_KEY_FILE`.
+
+```json
+{
+  "openrouter_enabled": true,
+  "embedding_model": "qwen/qwen3-embedding-8b",
+  "rerank_model": "qwen/qwen3-reranker-8b",
+  "decision_model": "typesafe/jev-1.14"
+}
+```
+
+With no configuration file, retrieval uses the Qwen models when a key is present. Set `openrouter_enabled` to `false` to use word and link search locally even with a key installed. A missing key also selects local retrieval. Set `decision_model` to `null` (the default) to skip decision calls. When enabled, Jev checks up to six nearby memories for duplication or contradiction before the librarian writes. Unanswered pairs retain the cosine check. Changing the embedding model starts background indexing under the new model ID. The similarity thresholds were calibrated for the default Qwen model.
+
+Open `/api/memory/models` on your LifeOS instance to see the loaded model IDs and whether remote calls are enabled with a key available.

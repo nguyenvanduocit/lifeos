@@ -94,6 +94,10 @@ fn block(by: Option<Actor>) -> Block {
                     series: vec![ChartSeries { name: "kg".into(), values: vec![70.5, -1.25] }],
                     unit: Some("kg".into()),
                 },
+                BlockPart::Ui {
+                    id: "panel".into(),
+                    document: r#"{"kind":"ui","root":"a","elements":{"a":{"component":"shadcn","name":"Card"}}}"#.into(),
+                },
                 BlockPart::Chart { id: "h".into(), label: "Giờ ngủ".into(), kind: ChartKind::Bar, x: vec!["T2".into()], series: vec![], unit: None },
             ],
         },

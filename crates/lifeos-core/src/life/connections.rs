@@ -81,6 +81,13 @@ pub const PROVIDER_CREDENTIAL_ENV: &[&str] = &[
 
 const PRESETS: &[PresetDefinition] = &[
     PresetDefinition {
+        id: "github", name: "GitHub", description: "Repositories, issues and pull requests.",
+        setup: "Save GITHUB_TOKEN in the Vault and share it with the agents that need repository access.",
+        secrets: &["GITHUB_TOKEN"],
+        config: || McpConfig { url: Some("https://api.githubcopilot.com/mcp/".into()),
+            headers: BTreeMap::from([("Authorization".into(), "Bearer ${GITHUB_TOKEN}".into())]), ..Default::default() },
+    },
+    PresetDefinition {
         id: "browser",
         name: "Browser",
         description: "Open pages, read content, fill forms, and take screenshots through agent-browser.",
@@ -289,6 +296,7 @@ impl Life {
     }
 
     pub fn add_connection(&self, preset: &str) -> Result<Connection> {
+        ensure!(preset != "github" || self.github_plugin_enabled(), "Enable the GitHub plugin first");
         let preset = PRESETS
             .iter()
             .find(|p| p.id == preset)
@@ -450,7 +458,7 @@ impl Life {
                 .collect(),
         };
         let github_enabled = self.github_plugin_enabled();
-        let connections = [Ok(built_in), Ok(desktop)].into_iter().chain(self
+        let mut connections = [Ok(built_in), Ok(desktop)].into_iter().chain(self
             .saved_connections()?
             .into_iter()
             .filter(|saved| github_enabled || !saved.belongs_to_github())
@@ -461,9 +469,10 @@ impl Life {
                     .filter(|m| m.status == "active" && m.connections.contains(&saved.name))
                     .map(|m| m.id.clone())
                     .collect();
+                let preset = if saved.belongs_to_github() { Some("github".into()) } else { saved.preset };
                 Ok(Connection {
                     name: saved.name,
-                    preset: saved.preset,
+                    preset,
                     enabled: saved.enabled,
                     secrets: saved.config.referenced()?,
                     missing,
@@ -478,8 +487,29 @@ impl Life {
                 })
             }))
             .collect::<Result<Vec<_>>>()?;
+        let path = self.home().join(".lifeos/plugins.json");
+        if let Some(paypal) = crate::plugins::configs(&path).ok().and_then(|mut entries| entries.remove("paypal")).filter(|p| !p.disabled) {
+            let names: Vec<String> = paypal.vault_keys.clone();
+            let missing: Vec<String> = names.iter().filter(|key| self.integration_key(key, Some(super::ASSISTANT)).ok().flatten().is_none()).cloned().collect();
+            connections.push(Connection {
+                name: "paypal".into(), preset: None, transport: "plugin".into(),
+                target: paypal.vars.get("PAYPAL_ENV").cloned().unwrap_or_else(|| "sandbox".into()),
+                enabled: missing.is_empty(), secrets: names, missing, members: vec![],
+            });
+        }
+        if let Ok(data) = std::fs::read(self.home().join(".lifeos/telegram.json")) {
+            #[derive(Deserialize)]
+            struct Channel { installed:bool, enabled:bool, chats:Vec<i64> }
+            if let Ok(c) = serde_json::from_slice::<Channel>(&data) && c.installed && c.enabled {
+                let key = "TELEGRAM_BOT_TOKEN";
+                let has_token = secrets.contains_key(key);
+                connections.push(Connection { name:"telegram".into(), preset:None,transport:"plugin".into(),
+                    target:format!("{} allowed chats",c.chats.len()),enabled:has_token && !c.chats.is_empty(),
+                    secrets:vec![key.into()],missing:if has_token {vec![]} else {vec![key.into()]},members:vec![] });
+            }
+        }
         let presets = PRESETS
-            .iter()
+            .iter().filter(|p| p.id != "github" || github_enabled)
             .map(|p| Preset {
                 id: p.id.into(),
                 name: p.name.into(),
@@ -502,6 +532,10 @@ impl Life {
                 used.entry(name).or_default().push(server.name.clone());
             }
         }
+        for (id,plugin) in crate::plugins::configs(&self.home().join(".lifeos/plugins.json")).unwrap_or_default() {
+            for key in plugin.vault_keys { used.entry(key).or_default().push(id.clone()); }
+        }
+        if self.home().join(".lifeos/telegram.json").is_file() {used.entry("TELEGRAM_BOT_TOKEN".into()).or_default().push("telegram".into());}
         Ok(used)
     }
 

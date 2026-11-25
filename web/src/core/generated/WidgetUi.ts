@@ -7,6 +7,6 @@ export type WidgetUi = { "kind": "ui",
  */
 root: string, 
 /**
- * Components by ID. Each ID appears once in the tree. At most 48 elements and six levels.
+ * Components by ID. Each ID appears once in the tree. At most 256 elements and 24 levels.
  */
 elements: { [key in string]: WidgetElement }, };

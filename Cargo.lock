@@ -1778,6 +1778,7 @@ dependencies = [
  "lifeos-core",
  "lifeos-desktop",
  "lifeos-google",
+ "lifeos-mcp",
  "lifeos-wire",
  "model",
  "openrouter",
@@ -1795,6 +1796,19 @@ dependencies = [
  "tracing",
  "url",
  "workflow",
+]
+
+[[package]]
+name = "lifeos-car"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "plugin-sdk",
+ "rusqlite",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -1829,6 +1843,7 @@ dependencies = [
  "dirs",
  "getrandom 0.4.3",
  "http",
+ "lifeos-plugin-wire",
  "lifeos-wire",
  "rusqlite",
  "schemars",
@@ -1866,9 +1881,11 @@ name = "lifeos-github"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "lifeos-core",
  "link",
  "plugin-sdk",
  "ring",
+ "rusqlite",
  "schemars",
  "serde",
  "serde_json",
@@ -1902,8 +1919,29 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "lifeos-core",
+ "link",
+ "plugin",
+ "plugin-sdk",
+ "reqwest",
+ "rmcp",
+ "schemars",
+ "serde",
  "serde_json",
  "tempfile",
+ "uuid",
+]
+
+[[package]]
+name = "lifeos-paypal"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "plugin-sdk",
+ "reqwest",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1913,7 +1951,9 @@ dependencies = [
  "grant",
  "link",
  "model",
+ "schemars",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1941,7 +1981,9 @@ dependencies = [
  "lifeos-agent",
  "lifeos-core",
  "lifeos-google",
+ "lifeos-mcp",
  "lifeos-plugin-wire",
+ "lifeos-telegram",
  "lifeos-wire",
  "link",
  "mime_guess",
@@ -2888,6 +2930,7 @@ dependencies = [
  "lifeos-plugin-wire",
  "link",
  "model",
+ "rusqlite",
  "schemars",
  "serde",
  "serde_json",

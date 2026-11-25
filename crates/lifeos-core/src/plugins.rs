@@ -15,11 +15,38 @@ pub struct Install {
     #[serde(default)]
     pub functions: Vec<String>,
     #[serde(default)]
+    pub vault_keys: Vec<String>,
+    #[serde(default)]
+    pub agents: Vec<plugin_wire::plugin::Agent>,
+    #[serde(default)]
+    pub automations: Vec<plugin_wire::plugin::Automation>,
+    #[serde(default)]
     pub hooks: BTreeMap<String, Hook>,
     #[serde(default)]
     pub events: BTreeMap<String, String>,
     #[serde(default)]
     pub vars: BTreeMap<String, String>,
+}
+
+pub fn contribution_id(plugin:&str, local:&str) -> String {format!("plugin.{plugin}.{local}")}
+
+impl Install {
+    pub fn agent(&self, plugin:&str, card:&str) -> Option<&plugin_wire::plugin::Agent> {
+        self.agents.iter().find(|a| card == contribution_id(plugin,&a.id))
+    }
+    pub fn resolved_args(&self, registry: &Path) -> Vec<String> {
+        self.args
+            .iter()
+            .map(|arg| match arg.as_str() {
+                "{lifeos_db}" => registry.with_file_name("lifeos.db").display().to_string(),
+                "{signal_history}" => registry
+                    .with_file_name("plugin-events.sqlite")
+                    .display()
+                    .to_string(),
+                _ => arg.clone(),
+            })
+            .collect()
+    }
 }
 
 /// String bindings keep the JSON hook API. Request bindings forward the
@@ -32,6 +59,34 @@ pub enum Hook {
         processor: String,
         headers: Vec<String>,
     },
+}
+
+pub fn legacy_credentials(id: &str) -> &'static [&'static str] {
+    match id {
+        "paypal" => &["PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET"],
+        "github" => &["GITHUB_WEBHOOK_SECRET"],
+        "telegram" => &["TELEGRAM_BOT_TOKEN"],
+        _ => &[],
+    }
+}
+
+pub fn runtime_vars(
+    home: &Path,
+    config: &Install,
+    agent: Option<&str>,
+) -> anyhow::Result<BTreeMap<String, String>> {
+    let mut vars = config.vars.clone();
+    let keys = &config.vault_keys;
+    if !keys.is_empty() {
+        let store = crate::Life::plugin_store(home)?;
+        for key in keys {
+            vars.remove(key);
+            if let Some(value) = store.integration_key(key, agent)? {
+                vars.insert(key.to_owned(), value);
+            }
+        }
+    }
+    Ok(vars)
 }
 
 pub fn identifier(value: &str) -> bool {

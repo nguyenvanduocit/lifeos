@@ -1,0 +1,629 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Manifest",
+  "description": "Everything the owner reads before applying a plugin; `poll` makes it a source of events, `accounts` makes each of its\nconnections a Claude account (ADR-0071).",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "accounts": {
+      "type": "boolean"
+    },
+    "agents": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Agent"
+      }
+    },
+    "auth": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Auth"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "automations": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Automation"
+      }
+    },
+    "capability": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string",
+      "default": ""
+    },
+    "emits": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {}
+    },
+    "label": {
+      "type": "string"
+    },
+    "poll": {
+      "type": "boolean"
+    },
+    "processors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Processor"
+      }
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "format": "uint32",
+      "default": 1,
+      "maximum": 1,
+      "minimum": 1
+    },
+    "sensorKinds": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SensorKind"
+      }
+    },
+    "settings": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SettingsSchema"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "signals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Signal"
+      }
+    },
+    "storage": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Storage"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "subscriptions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Subscription"
+      }
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Tool"
+      }
+    },
+    "ui": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Ui"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "vars": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Var"
+      }
+    },
+    "version": {
+      "type": "string",
+      "default": ""
+    },
+    "webhooks": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Webhook"
+      },
+      "default": {}
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "label",
+    "capability",
+    "vars",
+    "tools",
+    "poll",
+    "accounts",
+    "signals",
+    "agents",
+    "sensorKinds",
+    "processors",
+    "subscriptions",
+    "schemaVersion",
+    "version",
+    "description"
+  ],
+  "$defs": {
+    "Agent": {
+      "description": "An agent template the plugin ships; `group` is the kind of work it is for, empty for general.",
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "group": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "instructions": {
+          "type": "string"
+        },
+        "lifeosTools": {
+          "description": "Native LifeOS tool names requested by this crew member.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "pluginTools": {
+          "description": "Plugin functions this agent may call, also subject to the installed allowlist.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "group",
+        "instructions"
+      ]
+    },
+    "Auth": {
+      "description": "How the injecting proxy reaches the plugin's API and adds the connection's credential (ADR-0018, form T1).",
+      "type": "object",
+      "properties": {
+        "base": {
+          "type": "string"
+        },
+        "baseVar": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        },
+        "header": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "param": {
+          "type": "string"
+        },
+        "readPosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "scheme": {
+          "type": "string"
+        },
+        "vars": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "base",
+        "scheme",
+        "header",
+        "param",
+        "hash",
+        "vars",
+        "readPosts",
+        "baseVar",
+        "headers"
+      ]
+    },
+    "Automation": {
+      "description": "A native LifeOS routine targeting an agent contributed by this package.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "cron": {
+          "description": "Optional five-field cron expression in the LifeOS timezone. Omit for manual runs.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "id": {
+          "type": "string"
+        },
+        "instructions": {
+          "type": "string"
+        },
+        "on": {
+          "description": "LifeOS write tools which trigger this routine.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "paused": {
+          "type": "boolean",
+          "default": false
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "instructions",
+        "agent"
+      ]
+    },
+    "Effect": {
+      "description": "How an [`Effect`] is written in the contract and in a stored manifest: the variant, as serde's remote derive for a type\nof another crate writes it (`#[serde(with = \"EffectDef\")]`). The compiler holds its variants to the ladder's.",
+      "type": "string",
+      "enum": [
+        "read",
+        "reversible",
+        "compensable",
+        "irreversible"
+      ]
+    },
+    "Field": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string",
+          "default": ""
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "type": {
+          "$ref": "#/$defs/Kind"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "label",
+        "type"
+      ]
+    },
+    "Kind": {
+      "type": "string",
+      "enum": [
+        "text",
+        "secret",
+        "select"
+      ]
+    },
+    "Processor": {
+      "description": "Something a firing can do that the plugin adds, named by a subscription as `plugin:<id>.<name>`.",
+      "type": "object",
+      "properties": {
+        "effect": {
+          "$ref": "#/$defs/Effect"
+        },
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "paramsSchema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "paramsSchema",
+        "effect"
+      ]
+    },
+    "SensorKind": {
+      "description": "A kind of sensor the plugin adds (ADR-0049); `settingsSchema` is a JSON Schema document of a sensor's settings.",
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "settingsSchema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "settingsSchema"
+      ]
+    },
+    "SettingsSchema": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string",
+          "default": ""
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Field"
+          }
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "fields"
+      ]
+    },
+    "Signal": {
+      "description": "An event signal the plugin ships, `event:<name>`, filled by its poll with `pollQuery` every `pollEveryMinutes` (zero: its\nevents come to its door); `paused` ships it waiting for the owner.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "pollEveryMinutes": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "pollQuery": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "note",
+        "pollQuery",
+        "pollEveryMinutes",
+        "paused"
+      ]
+    },
+    "Slot": {
+      "description": "One place in the app the plugin fills with a component its remote exposes.",
+      "type": "object",
+      "properties": {
+        "expose": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot",
+        "id",
+        "title",
+        "expose"
+      ]
+    },
+    "Storage": {
+      "type": "string",
+      "enum": [
+        "vault_database",
+        "signal_history"
+      ]
+    },
+    "Subscription": {
+      "description": "A subscription the plugin ships: exactly one of `processor` (with `params`, a JSON object) and `action` (`tell` or `run`,\nwith `job` and the expressions of `with`) is set.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "expr": {
+          "type": "string"
+        },
+        "job": {
+          "type": "string"
+        },
+        "match": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "params": true,
+        "paused": {
+          "type": "boolean"
+        },
+        "processor": {
+          "type": "string"
+        },
+        "with": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "note",
+        "match",
+        "expr",
+        "processor",
+        "action",
+        "job",
+        "with",
+        "paused"
+      ]
+    },
+    "Tool": {
+      "description": "One question or act an agent can ask of the plugin; `inputSchema` is a JSON Schema document.",
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "effect": {
+          "$ref": "#/$defs/Effect"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "inputSchema",
+        "effect"
+      ]
+    },
+    "Ui": {
+      "description": "The frontend a plugin brings: the entry of its Module Federation remote, one of its assets, and the slots it fills.",
+      "type": "object",
+      "properties": {
+        "entry": {
+          "type": "string"
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Slot"
+          }
+        }
+      },
+      "required": [
+        "entry",
+        "slots"
+      ]
+    },
+    "Var": {
+      "description": "One credential variable the plugin reads: `secret` is stored sealed and never shown, `address` says where the system is.",
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "secret": {
+          "type": "boolean"
+        },
+        "vault": {
+          "description": "Requests the Vault key of the same name at installation.",
+          "type": "boolean",
+          "default": false
+        },
+        "what": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "what",
+        "secret",
+        "optional",
+        "address"
+      ]
+    },
+    "Webhook": {
+      "type": "object",
+      "properties": {
+        "headers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "processor": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "processor",
+        "headers"
+      ]
+    }
+  }
+}

@@ -5,6 +5,14 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
+serde = { version = "1", features = ["derive"] }
+schemars = "1.2.3"
+plugin = { path = "../plugin" }
+plugin-sdk = { path = "../plugin-sdk" }
+link = { path = "../link" }
+uuid = { version = "1", features = ["v4"] }
+rmcp = { version = "3.9.0", default-features = false, features = ["server", "transport-io"] }
 anyhow = "1.0.105"
 lifeos-core = { version = "0.1.0", path = "../lifeos-core" }
 serde_json = "1.0.154"

@@ -1,0 +1,112 @@
+{
+  "$schema": "../../docs/plugin-manifest.schema.json",
+  "schemaVersion": 1,
+  "version": "1.0.0",
+  "description": "Repositories, pull requests and signed repository events.",
+  "label": "GitHub",
+  "capability": "github",
+  "vars": [
+    {
+      "vault": true,
+      "name": "GITHUB_WEBHOOK_SECRET",
+      "what": "Shared secret for GitHub webhook signatures",
+      "secret": true,
+      "optional": true,
+      "address": false
+    }
+  ],
+  "tools": [
+    {
+      "name": "recent_events",
+      "description": "List recent GitHub webhook event types, timestamps (Unix milliseconds) and subscriber counts received by LifeOS, newest first.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "effect": "read"
+    }
+  ],
+  "poll": false,
+  "accounts": false,
+  "signals": [],
+  "agents": [
+    {
+      "id": "activity-reviewer",
+      "name": "GitHub Activity Reviewer",
+      "group": "Engineering",
+      "description": "Summarizes GitHub events received by LifeOS.",
+      "instructions": "Use recent_events to summarize received GitHub activity. Group by event type and give the latest reception time. Say when there are no events. Never infer repository names or pull request details from event counts.",
+      "pluginTools": [
+        "recent_events"
+      ]
+    }
+  ],
+  "sensorKinds": [],
+  "processors": [
+    {
+      "name": "webhook",
+      "label": "Receive a signed GitHub event",
+      "paramsSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "body",
+          "headers"
+        ],
+        "type": "object"
+      },
+      "effect": "read"
+    }
+  ],
+  "subscriptions": [],
+  "storage": "signal_history",
+  "automations": [
+    {
+      "id": "activity-digest",
+      "title": "GitHub activity digest",
+      "agent": "activity-reviewer",
+      "instructions": "Summarize the most recent 20 received GitHub events. Report counts by type and when the latest event arrived.",
+      "paused": false
+    }
+  ],
+  "emits": {
+    "push": "Received a signed GitHub push event.",
+    "pull_request": "Received a signed GitHub pull_request event.",
+    "pull_request_review": "Received a signed GitHub pull_request_review event.",
+    "pull_request_review_comment": "Received a signed GitHub pull_request_review_comment event.",
+    "issues": "Received a signed GitHub issues event.",
+    "workflow_run": "Received a signed GitHub workflow_run event.",
+    "notification": "Received a signed GitHub notification event.",
+    "pull_request_merged": "Received a signed GitHub pull_request_merged event."
+  },
+  "webhooks": {
+    "webhook": {
+      "processor": "webhook",
+      "headers": [
+        "x-github-event",
+        "x-github-delivery",
+        "x-hub-signature-256"
+      ]
+    }
+  }
+}

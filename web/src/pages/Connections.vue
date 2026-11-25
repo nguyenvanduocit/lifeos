@@ -4,6 +4,7 @@
 // can be added (the presets, and a custom server, which the host's terminal adds). Google and Desktop open their own
 // pages from their rows; the Vault has its own tab.
 import { computed, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { Check, ChevronRight, Copy, KeyRound, Plus, Power, Terminal, Trash2, Users } from '@lucide/vue'
 import IntegrationTabs from '../components/IntegrationTabs.vue'
 import AskChip from '../components/AskChip.vue'
@@ -30,6 +31,18 @@ const access = (members: string[]) => ['Assistant', ...members.map((id) => names
 interface Row { id: string; mark: string; name: string; what: string; state: { label: string; tone: string }; to?: string; action: string; c: Connection }
 const rows = computed((): Row[] =>
   (data.value?.connections ?? []).map((c) => {
+    if (c.transport === 'plugin' && c.name === 'paypal') {
+      return { id: 'plugin:paypal', mark: 'paypal', name: 'PayPal', what: `Balances and transactions · ${c.target}`,
+        state: c.enabled ? { label: 'Configured', tone: 'good' } : { label: 'Needs setup', tone: 'warning' },
+        to: '/connections/paypal', action: c.enabled ? 'Manage' : 'Set up', c }
+    }
+    if (c.preset === 'github') {
+      return { id: c.name, mark: 'github', name: c.name === 'github' ? 'GitHub' : `GitHub · ${c.name}`,
+        what: 'Repositories, issues and pull requests', state: !c.enabled ? {label:'Off',tone:'neutral'} : c.missing.length ? {label:'Needs a key',tone:'warning'} : {label:'Connected',tone:'good'}, action: '', c }
+    }
+    if (c.transport === 'plugin' && c.name === 'telegram') {
+      return { id:'plugin:telegram',mark:'telegram',name:'Telegram',what:c.target,state:c.enabled ? {label:'Configured',tone:'good'} : {label:'Needs setup',tone:'warning'},to:'/connections/plugins/telegram/settings',action:'Settings',c }
+    }
     if (c.name === 'google') {
       return { id: c.name, mark: 'google', name: 'Google', what: c.enabled && c.target ? `Gmail, Calendar, Drive, Contacts · ${c.target}` : 'Gmail, Calendar, Drive, Contacts',
         state: c.enabled ? { label: 'Signed in', tone: 'good' } : { label: 'Not signed in', tone: 'neutral' }, to: '/connections/google', action: c.enabled ? 'Manage' : 'Sign in', c }
@@ -69,24 +82,24 @@ async function copy() {
         <p class="ml-auto hidden text-[13px] text-ink2 sm:block">What your agents can reach. Keys come from the <RouterLink to="/connections/vault" class="font-medium text-ink hover:underline">Vault</RouterLink>.</p>
       </div>
       <ul class="overflow-hidden rounded-2xl border border-line bg-panel">
-        <li v-for="r in rows" :key="r.id" class="relative border-b border-line last:border-b-0" :class="r.to ? 'hover:bg-panel2/60' : ''">
-          <div class="flex items-center gap-4 px-5 py-4">
+        <li v-for="r in rows" :key="r.id" class="border-b border-line last:border-b-0">
+          <component :is="r.to ? RouterLink : 'div'" :to="r.to" :aria-label="r.to ? r.action + ' ' + r.name : undefined"
+            class="flex items-center gap-4 px-5 py-4" :class="r.to && 'hover:bg-panel2/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring'">
             <BrandMark :name="r.mark" />
             <div class="min-w-0 flex-1">
               <p class="flex flex-wrap items-center gap-2">
-                <RouterLink v-if="r.to" :to="r.to" class="text-[15px] font-medium after:absolute after:inset-0 focus-visible:outline-2 focus-visible:outline-ring">{{ r.name }}</RouterLink>
-                <span v-else class="text-[15px] font-medium">{{ r.name }}</span>
+                <span class="text-[15px] font-medium">{{ r.name }}</span>
                 <StatusTag :tone="r.state.tone">{{ r.state.label }}</StatusTag>
               </p>
               <p class="truncate text-[13px] text-ink2" :title="r.what">{{ r.what }}</p>
-              <p class="mt-1 flex items-center gap-1.5 truncate text-[12.5px] text-ink3"><Users class="size-3.5 shrink-0" aria-hidden="true" />{{ access(r.c.members) }}</p>
+              <p v-if="r.c.transport !== 'plugin'" class="mt-1 flex items-center gap-1.5 truncate text-[12.5px] text-ink3"><Users class="size-3.5 shrink-0" aria-hidden="true" />{{ access(r.c.members) }}</p>
             </div>
             <span v-if="r.to" class="hidden items-center gap-1 text-[13.5px] font-medium text-ink2 sm:flex">{{ r.action }}<ChevronRight class="size-4 text-ink3" aria-hidden="true" /></span>
             <AskChip v-else :icon="Power" :label="r.c.enabled ? 'Turn off' : 'Turn on'" :words="`${r.c.enabled ? 'Disable' : 'Enable'} connection ${r.c.name}.`" />
-          </div>
+          </component>
 
           <!-- An MCP server: the Vault keys it sends, then what else the Assistant can change. -->
-          <div v-if="!r.to" class="-mt-1 space-y-2 px-5 pb-4 sm:pl-[4.75rem]">
+          <div v-if="!r.to || r.c.secrets.length" class="-mt-1 space-y-2 px-5 pb-4 sm:pl-[4.75rem]">
             <div v-for="s in r.c.secrets" :key="s" class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
               <KeyRound class="size-3.5 text-ink3" aria-hidden="true" />
               <code class="font-mono text-[12.5px]">{{ s }}</code>
@@ -99,7 +112,7 @@ async function copy() {
                 <Plus class="size-3.5" aria-hidden="true" /> Save it in the Vault
               </RouterLink>
             </div>
-            <div class="flex flex-wrap gap-1.5 pt-1">
+            <div v-if="!r.to" class="flex flex-wrap gap-1.5 pt-1">
               <AskChip ghost :icon="Users" label="Who uses it" :words="`Change crew access to the ${r.c.name} connection: `" />
               <AskChip ghost :icon="Trash2" label="Remove" :words="`Remove connection ${r.c.name}.`" />
             </div>

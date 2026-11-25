@@ -80,6 +80,16 @@ pub struct Tool {
 }
 
 impl Tool {
+    /// Register the typed implementation of a tool documented in manifest.json.
+    pub fn handler<In, F, Fut>(name: &str, effect: Effect, run: F) -> Tool
+    where
+        In: DeserializeOwned + JsonSchema + Send + 'static,
+        F: Fn(Call, In) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<String, Error>> + Send + 'static,
+    {
+        Self::new(name, "", effect, run)
+    }
+
     /// The tool `name`, answering with what `run` returns. `In` is the tool's input: its JSON Schema, from its `schemars`
     /// derive, is what the agent reads.
     pub fn new<In, F, Fut>(name: &str, description: &str, effect: Effect, run: F) -> Tool
@@ -158,6 +168,7 @@ impl Account {
 /// Everything a plugin is, as data.
 #[derive(Clone, Default)]
 pub struct Definition {
+    pub package: Option<Manifest>,
     /// The name the owner reads.
     pub label: String,
     /// Which capability of the catalog a chain holds to get this plugin's tools.
@@ -200,6 +211,30 @@ macro_rules! invalid {
 }
 
 impl Definition {
+    /// Bind a package's declarative contract to its compiled implementation.
+    pub fn bind_manifest(mut self, json: &str) -> Result<Self, Invalid> {
+        let manifest = Manifest::parse_package(json).map_err(Invalid)?;
+        self.label.clone_from(&manifest.label);
+        self.capability.clone_from(&manifest.capability);
+        self.vars.clone_from(&manifest.vars);
+        self.agents.clone_from(&manifest.agents);
+        self.ui.clone_from(&manifest.ui);
+        for tool in &mut self.tools {
+            let declaration = manifest.tools.iter().find(|t| t.name == tool.name).ok_or_else(|| Invalid(format!("Undeclared tool {}",tool.name)))?;
+            tool.description.clone_from(&declaration.description);
+        }
+        self.package = Some(manifest.clone());
+        if self.manifest() != manifest {return Err(Invalid("Manifest does not match registered handlers and input schemas".into()));}
+        if let Some(ui) = &self.ui {
+            for slot in &ui.slots {
+                let asset = if slot.expose.is_empty() { &ui.entry } else { &slot.expose };
+                if !self.assets.contains_key(asset) {return Err(Invalid(format!("Missing slot asset {asset}")));}
+            }
+        }
+        self.validate()?;
+        Ok(self)
+    }
+
     /// Whether the plugin is one Remit accepts: names that are words, nothing declared twice, what Remit needs to make what it
     /// ships.
     pub fn validate(&self) -> Result<(), Invalid> {
@@ -369,6 +404,14 @@ impl Definition {
     /// What the plugin says it is, read without calling it.
     pub fn manifest(&self) -> Manifest {
         Manifest {
+            schema_version: wire::plugin::manifest_version(),
+            emits: self.package.as_ref().map(|p|p.emits.clone()).unwrap_or_default(),
+            webhooks: self.package.as_ref().map(|p|p.webhooks.clone()).unwrap_or_default(),
+            automations: self.package.as_ref().map(|p|p.automations.clone()).unwrap_or_default(),
+            version: self.package.as_ref().map(|p|p.version.clone()).unwrap_or_default(),
+            description: self.package.as_ref().map(|p|p.description.clone()).unwrap_or_default(),
+            settings: self.package.as_ref().and_then(|p|p.settings.clone()),
+            storage: self.package.as_ref().and_then(|p|p.storage),
             label: self.label.clone(),
             capability: self.capability.clone(),
             vars: self.vars.clone(),

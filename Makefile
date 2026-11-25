@@ -17,7 +17,7 @@ web: core        ## the Vue app -> web/dist (embedded by lifeos-web)
 	cd web && npm run build
 
 build: web       ## release binary with the web app inside
-	cargo build --release -p lifeos -p lifeos-github
+	cargo build --release -p lifeos -p lifeos-github -p lifeos-car -p lifeos-paypal
 
 computer:        ## LifeOS Computer.app (desktop use), installed in /Applications and served for other Macs
 	scripts/build-computer.sh --install

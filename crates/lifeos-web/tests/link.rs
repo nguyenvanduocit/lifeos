@@ -393,6 +393,12 @@ async fn signals_show_configured_receivers_even_when_disabled() {
     let running = lifeos_web::start(Arc::new(Mutex::new(life)), Default::default(), config()).await.unwrap();
     let view: serde_json::Value = reqwest::get(format!("http://{}/api/signals", running.http))
         .await.unwrap().error_for_status().unwrap().json().await.unwrap();
+    let routine_events = view["routineEvents"].as_array().unwrap();
+    assert!(routine_events.contains(&serde_json::json!("add_transaction")));
+    assert!(!routine_events.contains(&serde_json::json!("add_routine")));
+    let keys: Vec<_> = view["signals"].as_array().unwrap().iter()
+        .map(|signal| signal["event"].as_str().unwrap()).collect();
+    assert_eq!(keys, ["lifeos.changed", "lifeos.started", "plugin.producer.push"]);
     assert_eq!(view["subscriptions"], serde_json::json!([{
         "event": "plugin.producer.push", "plugin": "receiver", "processor": "consume", "enabled": false
     }]));

@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+lifeos-core = { path = "../lifeos-core" }
+rusqlite = "0.43.0"
 hex = "0.4.3"
 link = { path = "../link" }
 plugin-sdk = { path = "../plugin-sdk" }

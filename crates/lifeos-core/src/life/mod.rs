@@ -134,6 +134,12 @@ impl Life {
         Ok(life)
     }
 
+    /// Read the existing private store for a plugin call without indexing the workspace.
+    pub fn plugin_store(home: &Path) -> Result<Life> {
+        let conn = rusqlite::Connection::open_with_flags(home.join(".lifeos/lifeos.db"), rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        Ok(Life { vault: Vault::new(home.to_owned()), conn })
+    }
+
     /// For tests: vault on disk, database in memory.
     pub fn open_with_memory_db(home: impl Into<PathBuf>) -> Result<Life> {
         let vault = Vault::new(home.into());
@@ -239,7 +245,33 @@ impl Life {
 
     // ------------------------------------------------------------ documents
 
+    fn contributed_docs(&self, kind: Kind) -> Result<Vec<Doc>> {
+        use crate::plugins::{configs,contribution_id};
+        let mut docs = Vec::new();
+        for (id,p) in configs(&self.home().join(".lifeos/plugins.json")).unwrap_or_default() {
+            if p.disabled {continue;}
+            let mut push = |local:&str, meta:Frontmatter, body:&str| {
+                let key = contribution_id(&id,local);
+                docs.push(Doc{kind,id:key.clone(),rel_path:format!("plugins/{id}/{}/{local}",kind.as_str()),meta,body:body.into()});
+            };
+            match kind {
+                Kind::Crew => for a in p.agents {
+                    push(&a.id,Frontmatter{title:a.name,role:Some(a.description),status:Some("active".into()), tools:if a.lifeos_tools.is_empty() {vec!["recall".into()]} else {a.lifeos_tools},..Default::default()},&a.instructions);
+                },
+                Kind::Routine => for r in p.automations {
+                    let status = self.kv_get(&format!("plugin.routine.pause.{}",contribution_id(&id,&r.id)))?
+                        .map_or(r.paused, |v|v=="true");
+                    push(&r.id,Frontmatter{title:r.title, status:Some(if status {"paused"} else {"active"}.into()),
+                        agent:Some(contribution_id(&id,&r.agent)),cron:r.cron,on:r.on,..Default::default()},&r.instructions);
+                },
+                _=>()
+            }
+        }
+        Ok(docs)
+    }
+
     fn save(&self, doc: &Doc) -> Result<()> {
+        anyhow::ensure!(!doc.rel_path.starts_with("plugins/"), "This definition is managed by its plugin manifest");
         self.vault.write(doc)?;
         self.index_doc(doc, mtime_ns(&self.vault.abs(&doc.rel_path)))
     }
@@ -270,6 +302,10 @@ impl Life {
         let alias = id.split_once('_')
             .filter(|(prefix, _)| *prefix == kind.as_str())
             .map(|(_, key)| key);
+        let key = alias.unwrap_or(id);
+        if key.starts_with("plugin.") && matches!(kind,Kind::Crew|Kind::Routine) {
+            if let Some(doc) = self.contributed_docs(kind)?.into_iter().find(|d|d.id==key) {return Ok(doc);}
+        }
         let path: Option<String> = self
             .conn
             .query_row(

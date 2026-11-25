@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+plugin-wire = { package="lifeos-plugin-wire", path="../lifeos-plugin-wire" }
 http = "1"
 anyhow = "1.0.105"
 base64 = "0.22.1"

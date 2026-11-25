@@ -8,6 +8,7 @@ import type { EventRead } from '../../core/generated/EventRead';
 import { actorName } from './stream';
 import { useStream } from './streamContext';
 import Ago from './Ago.vue';
+import StreamUi from './StreamUi.vue';
 import BlockChart from './BlockChart.vue';
 import BlockChoice from './BlockChoice.vue';
 import Icon from './Icon.vue';
@@ -59,7 +60,8 @@ async function pick(part: string, picked: string[]) {
     <div class="flex flex-col gap-4">
       <template v-for="(part, n) in block.spec.parts" :key="n">
         <BlockChoice v-if="'choice' in part" :part="part.choice" :picked="newest(part.choice)" @pick="(picked) => pick(part.choice.id, picked)" />
-        <BlockChart v-else :part="part.chart" />
+        <BlockChart v-else-if="'chart' in part" :part="part.chart" />
+        <StreamUi v-else :document="part.ui.document" :id="part.ui.id" />
       </template>
     </div>
     <footer v-if="hasChoice" class="foot" role="status">

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "description": "Use a PayPal REST app with Transaction Search access. Select the environment that issued the credentials.",
+  "fields": [
+    {"key":"PAYPAL_ENV","label":"Environment","type":"select","options":["sandbox","live"],"default":"sandbox","required":true},
+    {"key":"PAYPAL_CLIENT_ID","label":"Client ID","type":"text","required":true},
+    {"key":"PAYPAL_CLIENT_SECRET","label":"Client secret","type":"secret","required":true}
+  ]
+}

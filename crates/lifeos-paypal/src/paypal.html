@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Số dư PayPal</title>
+<style>
+:root{color-scheme:light dark;font:1rem system-ui}button{font:inherit;padding:.4rem .8rem;cursor:pointer}output{display:block;margin-top:.8rem;white-space:pre-line}
+</style>
+<button type="button">Xem số dư PayPal</button>
+<output aria-live="polite"></output>
+<script>
+const button = document.querySelector('button')
+const output = document.querySelector('output')
+let pending
+button.onclick = () => {
+  pending = String(Date.now())
+  button.disabled = true
+  output.textContent = 'Đang tải số dư…'
+  parent.postMessage({type:'lifeos:call',id:pending,name:'balances',arguments:{}}, '*')
+}
+addEventListener('message', event => {
+  const reply = event.data
+  if (event.source !== parent || reply?.type !== 'lifeos:answer' || reply.id !== pending) return
+  output.textContent = reply.error ?? reply.result
+  button.disabled = false
+  pending = undefined
+})
+</script></html>

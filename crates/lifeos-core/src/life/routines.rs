@@ -84,6 +84,12 @@ fn cron(expression: &str) -> Result<Cron> {
         .parse(expression)?)
 }
 
+pub fn validate_plugin_trigger(expression:Option<&str>,on:&[String])->Result<()> {
+    if let Some(value)=expression {cron(value)?.find_next_occurrence(&Local::now(), false)?;}
+    ensure!(on.iter().all(|name|crate::tools::event_tool(name) || { let parts:Vec<_>=name.split('.').collect(); parts.len()==3 && parts[0]=="plugin" && parts[1..].iter().all(|s|crate::plugins::identifier(s)) }),"Unknown routine trigger");
+    Ok(())
+}
+
 fn once(at: &str) -> Result<DateTime<Local>> {
     let time = NaiveDateTime::parse_from_str(at, MINUTE).context("expected YYYY-MM-DD HH:MM")?;
     Local
@@ -235,6 +241,14 @@ impl Life {
 
     pub fn update_routine(&self, input: UpdateRoutine) -> Result<Routine> {
         let mut doc = self.find(Kind::Routine, &input.id)?;
+        if doc.rel_path.starts_with("plugins/") {
+            ensure!(input.title.is_none() && input.agent.is_none() && input.instructions.is_none() && input.workflow.is_none() && input.cron.is_none() && input.at.is_none() && input.on.is_none() && input.hook.is_none(), "Edit the plugin manifest to change this routine");
+            if let Some(paused)=input.paused {
+                self.kv_set(&format!("plugin.routine.pause.{}",doc.id),if paused {"true"} else {"false"})?;
+                if !paused {self.conn.execute("DELETE FROM routine_schedules WHERE routine=?1",[&doc.id])?;}
+            }
+            return self.routine_view(&self.find(Kind::Routine,&doc.id)?);
+        }
         let old_schedule = (doc.meta.cron.clone(), doc.meta.at.clone());
         let was_paused = !is_active(&doc);
         if let Some(title) = input.title {
@@ -288,6 +302,7 @@ impl Life {
 
     pub fn remove_routine(&self, id: &str) -> Result<()> {
         let doc = self.find(Kind::Routine, id)?;
+        ensure!(!doc.rel_path.starts_with("plugins/"),"Disable the owning plugin or pause this routine");
         let id = &doc.id;
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("DELETE FROM routine_hooks WHERE routine=?1", [id])?;
@@ -308,10 +323,12 @@ impl Life {
 
     fn routine_docs(&self) -> Result<Vec<Doc>> {
         let docs = self.docs_where(Kind::Routine, "1", "title, path")?;
-        Ok(docs
+        let mut routines: Vec<_> = docs
             .into_iter()
             .filter_map(|d| self.vault.read(Kind::Routine, &d.path).ok())
-            .collect())
+            .collect();
+        routines.extend(self.contributed_docs(Kind::Routine)?);
+        Ok(routines)
     }
 
     fn routine_view(&self, doc: &Doc) -> Result<Routine> {
@@ -359,6 +376,18 @@ impl Life {
         Ok(stmt
             .query_map(params![routine, limit.clamp(1, 200)], run_row)?
             .collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The delivery id is stable across worker restarts. Keep its receipt and run in one transaction.
+    pub fn queue_plugin_delivery(&self,id:&str,event:&str,delivery:&str,body:&Value)->Result<()> {
+        let doc=self.find(Kind::Routine,id)?;
+        if !is_active(&doc) || !doc.meta.on.iter().any(|s|s==event) {return Ok(());}
+        let tx=self.conn.unchecked_transaction()?;
+        if tx.execute("INSERT OR IGNORE INTO kv(key,value) VALUES (?1,'queued')",[format!("plugin.delivery.{delivery}")])? != 0 {
+            enqueue(&tx,&doc,"event",Some(event),Some(&preview(&body.to_string(),4000)),Local::now())?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn queue_manual(&self, id: &str) -> Result<Run> {
@@ -429,8 +458,8 @@ impl Life {
         // Input is omitted to avoid persisting extra copies of user-supplied arguments.
         self.conn.execute(
             "INSERT INTO tool_log(at,caller,tool,input,output) SELECT ?1,?2,?3,'{}',?4
-             WHERE EXISTS (SELECT 1 FROM docs WHERE kind='routine' AND COALESCE(status,'active')='active')",
-            params![stamp(Local::now()), caller, tool, preview(&output.to_string(), 4000)],
+             WHERE ?5 OR EXISTS (SELECT 1 FROM docs WHERE kind='routine' AND COALESCE(status,'active')='active')",
+            params![stamp(Local::now()), caller, tool, preview(&output.to_string(), 4000),self.contributed_docs(Kind::Routine)?.iter().any(|d|is_active(d) && d.meta.on.iter().any(|n|n==tool))],
         )?;
         Ok(())
     }
@@ -443,14 +472,9 @@ impl Life {
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let mut changed = false;
-        tx.execute_batch(
-            "DELETE FROM routine_schedules WHERE NOT EXISTS (
-                SELECT 1 FROM docs WHERE kind='routine' AND id=routine_schedules.routine
-             );
-             DELETE FROM routine_hooks WHERE NOT EXISTS (
-                SELECT 1 FROM docs WHERE kind='routine' AND id=routine_hooks.routine
-             );",
-        )?;
+        let ids = serde_json::to_string(&docs.iter().map(|d| &d.id).collect::<Vec<_>>())?;
+        tx.execute("DELETE FROM routine_schedules WHERE routine NOT IN (SELECT value FROM json_each(?1))",[&ids])?;
+        tx.execute("DELETE FROM routine_hooks WHERE routine NOT IN (SELECT value FROM json_each(?1))",[&ids])?;
         for doc in &docs {
             let (next, _) = match schedule(&tx, doc, now) {
                 Ok(schedule) => schedule,
@@ -623,6 +647,33 @@ mod tests {
 
     use super::*;
     use crate::tools;
+
+    #[test]
+    fn plugin_contributions_follow_registry_and_deduplicate_deliveries() {
+        let (dir,life) = crate::life::test_support::life();
+        let folder=dir.path().join(".lifeos");
+        std::fs::create_dir_all(&folder).unwrap();
+        let path=folder.join("plugins.json");
+        let mut package=serde_json::json!({"binary":"/fixture/demo","sha256":"0".repeat(64),
+            "agents":[{"id":"review","name":"Reviewer","group":"Test","description":"Read activity","instructions":"Summarize it."}],
+            "automations":[{"id":"digest","title":"Digest","instructions":"Summarize","agent":"review","on":["plugin.demo.push"]}]});
+        let persist=|package:&Value| std::fs::write(&path,serde_json::json!({"demo":package}).to_string()).unwrap();
+        persist(&package);
+        let id="plugin.demo.digest";
+        assert_eq!(life.crew().unwrap()[0].id,"plugin.demo.review");
+        assert_eq!(life.routines().unwrap()[0].agent,"plugin.demo.review");
+        for _ in 0..2 {life.queue_plugin_delivery(id,"plugin.demo.push","test-job",&Value::Null).unwrap();}
+        assert_eq!(life.runs(Some(id),10).unwrap().len(),1);
+        life.update_routine(UpdateRoutine{id:id.into(),paused:Some(true),..Default::default()}).unwrap();
+        assert!(life.queue_manual(id).is_err());
+        package["disabled"]=true.into();persist(&package);
+        assert!(life.crew().unwrap().is_empty());
+        assert!(life.routines().unwrap().is_empty());
+        assert!(life.check_queued_routine(id).is_err());
+        assert_eq!(life.runs(Some(id),10).unwrap().len(),1);
+        package["disabled"]=false.into();persist(&package);
+        assert_eq!(life.routines().unwrap()[0].status,"paused");
+    }
 
     #[test]
     fn schedules_queue_once_and_survive_reopen() {

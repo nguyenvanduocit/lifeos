@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+lifeos-mcp = { path = "../lifeos-mcp" }
+lifeos-telegram = { path = "../lifeos-telegram" }
 rusqlite = { version = "0.43.0", features = ["bundled"] }
 chrono = "0.4.45"
 serde = { version = "1.0.229", features = ["derive"] }

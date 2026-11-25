@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Download, LoaderCircle, Puzzle, Settings2 } from '@lucide/vue'
+import { ChevronDown, Download, LoaderCircle, Puzzle } from '@lucide/vue'
+import AskChip from '../components/AskChip.vue'
+import PluginDetails from '../components/PluginDetails.vue'
 import IntegrationTabs from '../components/IntegrationTabs.vue'
 import LoadState from '../components/LoadState.vue'
 import PageHeader from '../components/ds/PageHeader.vue'
 import StatusTag from '../components/ds/StatusTag.vue'
-import PluginFrame from '../components/PluginFrame.vue'
 import { Button } from '../components/ui/button'
 import { availablePlugins, loadPlugins, managePlugin, pluginError, plugins, pluginsLoading } from '../plugins'
 
 const busy = ref<string>()
-const settings = ref<string>()
+const expanded = ref<string>()
 const actionError = ref<string>()
 
 async function change(id: string, action: Parameters<typeof managePlugin>[1]) {
@@ -18,7 +19,7 @@ async function change(id: string, action: Parameters<typeof managePlugin>[1]) {
   actionError.value = undefined
   try {
     await managePlugin(id, action)
-    if (action === 'disable' && settings.value === id) settings.value = undefined
+    if (action === 'disable' && expanded.value === id) expanded.value = undefined
   } catch (error) {
     actionError.value = error instanceof Error ? error.message : String(error)
   } finally {
@@ -26,9 +27,6 @@ async function change(id: string, action: Parameters<typeof managePlugin>[1]) {
   }
 }
 
-function description(id: string) {
-  return id === 'github' ? 'GitHub MCP access and signed repository events.' : ''
-}
 </script>
 
 <template>
@@ -52,12 +50,14 @@ function description(id: string) {
                   {{ plugin.error ? 'Error' : plugin.enabled ? 'Enabled' : 'Disabled' }}
                 </StatusTag>
               </div>
-              <p v-if="description(plugin.id)" class="mt-1 text-sm text-ink2">{{ description(plugin.id) }}</p>
+              <p v-if="plugin.description" class="mt-1 text-sm text-ink2">{{ plugin.description }}</p>
             </div>
-            <Button v-if="plugin.enabled && (plugin.functions.length || plugin.slots.some((slot) => slot.slot === 'page'))"
-              variant="ghost" size="sm" :aria-expanded="settings === plugin.id"
-              @click="settings = settings === plugin.id ? undefined : plugin.id">
-              <Settings2 class="size-4" /> Details
+            <AskChip v-if="plugin.enabled && plugin.functions.length" label="Ask Assistant" :words="`Dùng plugin ${plugin.label} để `" />
+            <RouterLink v-if="plugin.enabled && plugin.has_settings" :to="`/connections/plugins/${plugin.id}/settings`" class="text-sm font-medium hover:underline">Settings</RouterLink>
+            <Button v-if="plugin.enabled"
+              variant="ghost" size="sm" :aria-expanded="expanded === plugin.id" :aria-controls="`plugin-details-${plugin.id}`"
+              @click="expanded = expanded === plugin.id ? undefined : plugin.id">
+              Details <ChevronDown class="size-4 transition-transform" :class="expanded === plugin.id && 'rotate-180'" />
             </Button>
             <Button variant="outline" size="sm" :disabled="!!busy" @click="change(plugin.id, plugin.enabled ? 'disable' : 'enable')">
               <LoaderCircle v-if="busy === plugin.id" class="size-4 animate-spin" />
@@ -68,12 +68,7 @@ function description(id: string) {
             {{ plugin.retrying_deliveries }} event {{ plugin.retrying_deliveries === 1 ? 'delivery is' : 'deliveries are' }} waiting to retry.
           </p>
           <p v-if="plugin.error" role="alert" class="px-4 pb-4 text-sm text-critical">{{ plugin.error }}</p>
-          <div v-if="settings === plugin.id && plugin.enabled" class="space-y-3 border-t border-line p-4">
-            <ul v-if="plugin.functions.length" class="space-y-1 text-sm text-ink2">
-              <li v-for="fn in plugin.functions" :key="fn.name"><code>{{ fn.name }}</code> · {{ fn.description }}</li>
-            </ul>
-            <PluginFrame v-for="slot in plugin.slots.filter((s) => s.slot === 'page')" :key="slot.id" :plugin="plugin" :slot="slot" />
-          </div>
+          <PluginDetails v-if="expanded === plugin.id && plugin.enabled" :id="`plugin-details-${plugin.id}`" :plugin="plugin" />
         </li>
       </ul>
     </section>
@@ -85,8 +80,17 @@ function description(id: string) {
           <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-panel2 text-ink2"><Puzzle class="size-5" aria-hidden="true" /></span>
           <div class="min-w-40 flex-1">
             <h3 class="font-medium">{{ plugin.label }}</h3>
-            <p v-if="description(plugin.id)" class="mt-1 text-sm text-ink2">{{ description(plugin.id) }}</p>
+            <p v-if="plugin.manifest?.description" class="mt-1 text-sm text-ink2">{{ plugin.manifest?.description }}</p>
           </div>
+          <details v-if="plugin.manifest" class="text-sm">
+            <summary class="cursor-pointer">Package access</summary>
+            <p class="mt-2">Version {{ plugin.manifest.version }}</p>
+            <p v-for="tool in plugin.manifest.tools" :key="tool.name">{{ tool.name }} · {{ tool.effect }}</p>
+            <p v-for="v in plugin.manifest.vars.filter(v => v.vault)" :key="v.name">Vault · {{ v.name }}</p>
+            <p v-for="a in plugin.manifest.agents" :key="a.id">Crew · {{ a.name }}</p>
+            <p v-for="r in plugin.manifest.automations" :key="r.id">Routine · {{ r.title }}</p>
+            <p v-if="plugin.manifest.storage">Storage · {{ plugin.manifest.storage }}</p>
+          </details>
           <Button size="sm" :disabled="!!busy" @click="change(plugin.id, 'install')">
             <LoaderCircle v-if="busy === plugin.id" class="size-4 animate-spin" />
             <Download v-else class="size-4" /> Install

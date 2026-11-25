@@ -1,0 +1,113 @@
+{
+  "$schema": "../../docs/plugin-manifest.schema.json",
+  "schemaVersion": 1,
+  "version": "1.0.0",
+  "description": "Account balances and transaction reports by currency.",
+  "label": "PayPal",
+  "capability": "paypal",
+  "vars": [
+    {
+      "vault": false,
+      "name": "PAYPAL_ENV",
+      "what": "sandbox or live",
+      "secret": false,
+      "optional": true,
+      "address": false
+    },
+    {
+      "vault": true,
+      "name": "PAYPAL_CLIENT_ID",
+      "what": "PayPal REST app client ID",
+      "secret": false,
+      "optional": true,
+      "address": false
+    },
+    {
+      "vault": true,
+      "name": "PAYPAL_CLIENT_SECRET",
+      "what": "PayPal REST app client secret",
+      "secret": true,
+      "optional": true,
+      "address": false
+    }
+  ],
+  "tools": [
+    {
+      "name": "balances",
+      "description": "Read PayPal balances by currency",
+      "inputSchema": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "effect": "read"
+    },
+    {
+      "name": "list_transactions",
+      "description": "Read a paginated PayPal transaction report over a UTC date range.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "end_date": {
+            "description": "Last UTC calendar date, YYYY-MM-DD (inclusive, at most 31 days total).",
+            "type": "string"
+          },
+          "page": {
+            "description": "Page number starting at one. Each page has up to 100 transactions.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "start_date": {
+            "description": "First UTC calendar date, YYYY-MM-DD (inclusive).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_date",
+          "end_date"
+        ],
+        "type": "object"
+      },
+      "effect": "read"
+    }
+  ],
+  "poll": false,
+  "accounts": false,
+  "signals": [],
+  "agents": [],
+  "sensorKinds": [],
+  "processors": [],
+  "subscriptions": [],
+  "settings": {
+    "version": 1,
+    "description": "Use a PayPal REST app with Transaction Search access. Select the environment that issued the credentials.",
+    "fields": [
+      {
+        "key": "PAYPAL_ENV",
+        "label": "Environment",
+        "type": "select",
+        "options": [
+          "sandbox",
+          "live"
+        ],
+        "default": "sandbox",
+        "required": true
+      },
+      {
+        "key": "PAYPAL_CLIENT_ID",
+        "label": "Client ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "PAYPAL_CLIENT_SECRET",
+        "label": "Client secret",
+        "type": "secret",
+        "required": true
+      }
+    ]
+  }
+}

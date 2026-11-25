@@ -1,21 +1,32 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 export interface PluginSlot {
   id: string
-  slot: 'page' | 'dashboard'
+  slot: 'page' | 'dashboard' | 'sidebar'
   title: string
   expose: string
 }
 
 export interface PluginPackage {
+  agents?: { id: string; name: string; description?: string }[]
+  automations?: { id: string; title: string; cron?: string; on?: string[]; paused?: boolean }[]
+  manifest?: { agents:{id:string;name:string}[]; automations?:{id:string;title:string}[]; description: string; version: string; storage?:string; vars: {name:string; vault?:boolean}[]; tools:{name:string; effect:string}[] }
+  description?: string
   id: string
   label: string
 }
 
 export interface Plugin extends PluginPackage {
+  vault_keys?: string[]
+  emits?: Record<string, string>
+  has_settings?: boolean
+  capability?: string
+  processors?: string[]
   retrying_deliveries: number
+  configured?: boolean
+  chats?: number[]
   enabled: boolean
-  functions: { name: string; description: string }[]
+  functions: { name: string; description: string; effect?: string }[]
   slots: PluginSlot[]
   error?: string
 }
@@ -73,3 +84,10 @@ export async function managePlugin(id: string, action: 'install' | 'enable' | 'd
   if (!response.ok) throw new Error(await response.text())
   await loadPlugins()
 }
+
+export const sidebarPages = computed(() => plugins.value.filter(p => p.enabled).flatMap(plugin =>
+  plugin.slots.filter(s => s.slot === 'sidebar').map(slot => ({
+    plugin, slot, path: `/plugins/${encodeURIComponent(plugin.id)}/${encodeURIComponent(slot.id)}`,
+    name: slot.title || plugin.label, domain: 'integrations' as const,
+  }))
+))

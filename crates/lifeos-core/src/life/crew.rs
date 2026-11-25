@@ -134,10 +134,11 @@ impl Life {
 
     /// Active members first, then by name.
     pub fn crew(&self) -> Result<Vec<CrewMember>> {
-        self.docs_where(Kind::Crew, "1", "status = 'retired', title")?
-            .iter()
-            .map(|d| self.member(&d.id))
-            .collect()
+        let mut crew = self.docs_where(Kind::Crew, "1", "status = 'retired', title")?
+            .iter().map(|d| self.member(&d.id)).collect::<Result<Vec<_>>>()?;
+        for doc in self.contributed_docs(Kind::Crew)? {crew.push(self.crew_member(&doc)?);}
+        crew.sort_by(|a,b| (a.status=="retired",&a.name).cmp(&(b.status=="retired",&b.name)));
+        Ok(crew)
     }
 
     pub fn member(&self, id: &str) -> Result<CrewMember> {

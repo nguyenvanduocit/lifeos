@@ -30,3 +30,6 @@ pub use wire::plugin::{
     Agent, Auth, Effect, Firing, Manifest, PollAnswer, PollAsk, PollItem, ProcessAnswer, Reading, SenseOpen, Signal,
     Slot, Subscription, Ui, Var, Vars,
 };
+
+#[cfg(feature = "storage")]
+pub mod storage;

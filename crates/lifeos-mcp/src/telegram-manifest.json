@@ -1,0 +1,83 @@
+{
+  "$schema": "../../../docs/plugin-manifest.schema.json",
+  "schemaVersion": 1,
+  "version": "1.0.0",
+  "description": "Talk to Assistant and send messages to allowed chats.",
+  "label": "Telegram",
+  "capability": "telegram",
+  "vars": [
+    {
+      "vault": true,
+      "name": "TELEGRAM_BOT_TOKEN",
+      "what": "Bot token",
+      "secret": true,
+      "optional": false,
+      "address": false
+    },
+    {
+      "vault": false,
+      "name": "TELEGRAM_ALLOWED_CHATS",
+      "what": "Allowed chat IDs",
+      "secret": false,
+      "optional": true,
+      "address": false
+    }
+  ],
+  "tools": [
+    {
+      "name": "channel_status",
+      "description": "Check bot credential availability and list allowed chat IDs.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "effect": "read"
+    },
+    {
+      "name": "send_message",
+      "description": "Send the requested text to one allowed Telegram chat ID.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "chat_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "chat_id",
+          "text"
+        ],
+        "type": "object"
+      },
+      "effect": "irreversible"
+    }
+  ],
+  "poll": false,
+  "accounts": false,
+  "signals": [],
+  "agents": [],
+  "sensorKinds": [],
+  "processors": [],
+  "subscriptions": [],
+  "settings": {
+    "version": 1,
+    "description": "Save TELEGRAM_BOT_TOKEN in the Vault, then send /start to your bot to find your chat ID. Add that ID here to talk to the Assistant.",
+    "fields": [
+      {
+        "key": "TELEGRAM_BOT_TOKEN",
+        "label": "Bot token from @BotFather",
+        "type": "secret",
+        "required": true
+      },
+      {
+        "key": "TELEGRAM_ALLOWED_CHATS",
+        "label": "Allowed chat IDs (comma-separated)",
+        "type": "text"
+      }
+    ]
+  }
+}

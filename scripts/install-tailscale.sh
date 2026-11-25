@@ -34,13 +34,16 @@ cp "$root/target/release/lifeos" "$bin.new"
 mv -f "$bin.new" "$bin"
 [ -d "$home" ] || "$bin" init --home "$home"
 package_dir="$home/.lifeos/plugin-packages"
-if [ -x "$root/target/release/lifeos-github" ]; then
+for package in lifeos-github lifeos-car lifeos-paypal; do
+  [ -x "$root/target/release/$package" ] || continue
   mkdir -p "$package_dir"
-  staged=$(mktemp "$package_dir/.lifeos-github.XXXXXX")
-  cp -p "$root/target/release/lifeos-github" "$staged"
-  mv -f "$staged" "$package_dir/lifeos-github"
-fi
-
+  staged=$(mktemp "$package_dir/.$package.XXXXXX")
+  cp -p "$root/target/release/$package" "$staged"
+  mv -f "$staged" "$package_dir/$package"
+  staged=$(mktemp "$package_dir/.$package.XXXXXX")
+  cp "$root/crates/$package/manifest.json" "$staged"
+  mv -f "$staged" "$package_dir/$package.manifest.json"
+done
 
 cat > "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

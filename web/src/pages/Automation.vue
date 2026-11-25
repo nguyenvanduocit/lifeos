@@ -103,7 +103,7 @@ const STARTERS = [
       </label>
     </div>
 
-    <SignalView v-if="tab === 'signals'" />
+    <SignalView v-if="tab === 'signals'" :routines="routines" :routines-error="routinesError" />
     <template v-else-if="tab === 'routines'">
       <LoadState v-if="routinesError || !routines" :loading="routinesLoading" :error="routinesError" label="routines" class="px-5 pb-4" @retry="retryRoutines" />
       <ul v-else-if="routines.length" class="border-t border-line">

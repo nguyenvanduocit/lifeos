@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+lifeos-mcp = { path = "../lifeos-mcp" }
 agent = { path = "../agent" }
 axum = "0.8.9"
 claudecode = { path = "../claudecode" }

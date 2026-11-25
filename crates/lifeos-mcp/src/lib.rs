@@ -6,6 +6,9 @@
 //! claude mcp add lifeos -- lifeos mcp
 //! ```
 
+pub mod plugin;
+pub mod telegram;
+
 use std::io::{BufRead, Write};
 
 use anyhow::Result;

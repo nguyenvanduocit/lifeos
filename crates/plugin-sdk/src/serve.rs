@@ -12,7 +12,7 @@ use serde_json::Value;
 use tokio::sync::Notify;
 use wire::Ack;
 use wire::plugin::{
-    Firing, Manifest, PLUGIN_CONTRACT, PollAnswer, PollAsk, ProcessAnswer, SenseOpen, Vars, forge,
+    Firing, PLUGIN_CONTRACT, PollAnswer, PollAsk, ProcessAnswer, SenseOpen, Vars, forge,
 };
 
 use crate::pipe::{Note, Peer, Serve};
@@ -20,7 +20,8 @@ use crate::plugin::{Forge, Plugin, Sensed};
 
 /// Runs `plugin` as a child of Remit and returns when Remit ends the session. It is the whole of a plugin's `main`.
 pub fn serve(plugin: impl Plugin + 'static) -> ExitCode {
-    if std::io::stdin().is_terminal() {
+    let export = std::env::args_os().last().is_some_and(|arg| arg == "--manifest");
+    if !export && std::io::stdin().is_terminal() {
         eprintln!(
             "This program is a Remit plugin: Remit starts it and speaks to it on its stdin and stdout."
         );
@@ -36,6 +37,12 @@ pub fn serve(plugin: impl Plugin + 'static) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if export {
+        return match runtime.block_on(plugin.describe()) {
+            Ok(manifest) => {println!("{}", serde_json::to_string_pretty(&manifest).expect("manifest JSON")); ExitCode::SUCCESS},
+            Err(error) => {eprintln!("{}", error.message); ExitCode::FAILURE}
+        };
+    }
     let served = runtime.block_on(run(plugin));
     // A read of stdin may still wait in a blocking thread; the process ends without it.
     runtime.shutdown_background();
@@ -139,8 +146,10 @@ fn remove_run(all: &Runs, id: &str, stop: &Arc<Notify>) {
 }
 
 impl wire::plugin::Handler for Served {
-    async fn describe(&self) -> Result<Manifest, Failure> {
-        self.plugin.describe().await
+    async fn describe(&self) -> Result<model::ForeignJson, Failure> {
+        let manifest = self.plugin.describe().await?;
+        serde_json::to_value(manifest).map(Into::into)
+            .map_err(|error| Failure::new(ErrorCode::InvalidArgument, error.to_string()))
     }
 
     async fn poll(&self, ask: PollAsk) -> Result<PollAnswer, Failure> {

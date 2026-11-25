@@ -208,6 +208,12 @@ macro_rules! tools {
             call_with_origin(life, caller, name, input, false)
         }
 
+        pub fn routine_event_names() -> Vec<&'static str> {
+            let mut names: Vec<_> = [$($name,)*].into_iter().filter(|name| event_tool(name)).collect();
+            names.sort_unstable();
+            names
+        }
+
         pub fn event_tool(name: &str) -> bool {
             match name {
                 $($name => !access!($access) && !manages_automation(name),)*
@@ -283,11 +289,14 @@ tools! {
     read "dashboard": Day => Dashboard,
         "Everything at a glance for a day: the morning brief, tasks by bucket, active goals, habits, people to get in touch with, birthdays, this month's money, health trends, recent journal and notes, the inbox. Start here when the user asks what to do or how things are going.",
         |life, i| life.dashboard(on(i.date));
+    read "list_ui_components": Nothing => Vec<String>,
+        "List the component names available in JSON UI for widgets and plugins.",
+        |_life, _input| Ok(ui_catalog().keys().cloned().collect::<Vec<String>>());
     read "list_widgets": ListWidgets => Vec<CustomWidget>,
         "List persistent dashboard widgets for an exact LifeOS page path, including their IDs and slots.",
         |life, i| life.list_widgets(&i.page);
     write "save_widget": SaveWidget => CustomWidget,
-        "Create, edit, or move a native widget. Choose typed content (kpi, goal, bars, line, list, text, or ui). For ui set root to an element ID; elements maps IDs to component definitions. Section has header, body, actions and footer slots of element IDs. Button prepares an Assistant draft. Save standing refresh instructions in prompt. Use / for a standalone Home card, or the exact page path to place it at the top of another page. List widgets first when editing and use widget_<id>. On an update, supply only the fields to change. Omit title unless the user requests a rename.",
+        "Create, edit, or move a native widget. Choose typed content (kpi, goal, bars, line, list, text, or ui). For ui set root to an element ID; elements maps IDs to component definitions. Read list_ui_components for the full catalog. Use component shadcn with a PascalCase export name, JSON props and slots mapping names (including default) to ordered IDs. Examples: Card, CardHeader, CardTitle, Tabs, TabsList, TabsTrigger, TabsContent, Accordion and Graph. Graph takes props.part with id, label, kind (bar or line), x labels, series [{name,values}] and optional unit. Section has header, body, actions and footer slots of element IDs. Button prepares an Assistant draft. Save standing refresh instructions in prompt. Use / for a standalone Home card, or the exact page path to place it at the top of another page. List widgets first when editing and use widget_<id>. On an update, supply only the fields to change. Omit title unless the user requests a rename.",
         |life, i, actor| life.save_widget(i, actor);
     write "remove_widget": RemoveWidget => (),
         "Remove a persistent dashboard widget by ID. List widgets on the relevant page to find it.",
