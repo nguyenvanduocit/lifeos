@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use lifeos_agent::{AgentConfig, Effort, LifeAgent, Progress, SharedLife};
+use lifeos_agent::{AgentConfig, Effort, LifeAgent, SharedLife, reply_text};
+use lifeos_core::life::Step;
 use lifeos_core::Life;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -137,7 +138,7 @@ async fn main() -> Result<()> {
             let agent = LifeAgent::spawn(shared(open()?), agent_config).await?;
             let reply = agent.ask(&message.join(" "), |_| {}).await;
             agent.close().await;
-            println!("{}", reply?.text);
+            println!("{}", reply_text(&reply?));
             Ok(())
         }
         Command::Mcp => lifeos_mcp::serve_stdio(&mut open()?),
@@ -191,18 +192,23 @@ async fn chat(life: SharedLife, mut config: AgentConfig, resume: bool) -> Result
             continue;
         }
         let result = agent
-            .ask(line, |p| match p {
-                Progress::Text(t) => {
+            .ask(line, |step| match step {
+                Step::Text(t) => {
                     print!("{t}");
                     let _ = std::io::stdout().flush();
                 }
-                Progress::Tool(name) => eprintln!("  · {}", name.trim_start_matches("mcp__lifeos__")),
+                Step::Tool(call) => eprintln!("  · {}", call.name),
+                Step::ToolDone(o) if o.failed => eprintln!("  ✗ {}", o.output.lines().next().unwrap_or_default()),
+                _ => {}
             })
             .await;
         match result {
-            Ok(reply) => {
+            Ok(done) => {
                 println!();
-                if let Some(id) = reply.session_id {
+                if let Some(err) = done.error {
+                    eprintln!("lỗi: {err}");
+                }
+                if let Some(id) = agent.session_id() {
                     life.lock().expect("life lock").kv_set(CLI_SESSION_KEY, &id)?;
                 }
             }

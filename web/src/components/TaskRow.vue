@@ -3,7 +3,7 @@
 import { computed } from 'vue'
 import { Check, Circle, Flag } from '@lucide/vue'
 import type { DocSummary } from '../core/generated/DocSummary'
-import { ask, assistant } from '../assistant'
+import { ask, busy } from '../assistant'
 import { relativeDay, todayIso } from '../format'
 
 const props = defineProps<{ task: DocSummary; done?: boolean }>()
@@ -24,7 +24,7 @@ function complete() {
     <button
       type="button"
       class="text-ink3 hover:text-accent disabled:opacity-40"
-      :disabled="done || !!assistant.pending"
+      :disabled="done || busy()"
       :title="done ? 'Đã xong' : 'Nhờ agent đánh dấu xong'"
       @click="complete"
     >

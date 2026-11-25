@@ -3,4 +3,4 @@
 /**
  * A request from a client.
  */
-export type Call = { "Read": { tool: string, input: string, } } | { "Chat": { message: string, } } | "Brief" | "History" | "ResetChat" | "Watch";
+export type Call = { "Read": { tool: string, input: string, } } | { "Chat": { agent: string, message: string, } } | "Brief" | { "Stop": { agent: string, } } | { "History": { agent: string, } } | { "ResetChat": { agent: string, } } | "Watch";

@@ -2,10 +2,14 @@
 import type { ChatDone } from "./ChatDone";
 
 /**
- * One exchange with the agent.
+ * One exchange with an agent.
  */
 export type Turn = { 
 /**
- * What the user (or the page, for a brief) asked.
+ * What the user (or lifeos, for a brief) asked.
  */
-ask: string, reply: ChatDone, };
+ask: string, 
+/**
+ * When it was asked, `YYYY-MM-DD HH:MM`.
+ */
+at: string, reply: ChatDone, };

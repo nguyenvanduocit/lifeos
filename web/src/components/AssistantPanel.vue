@@ -1,120 +1,169 @@
 <script setup lang="ts">
-// The conversation with the agent, beside every page. Everything that
-// changes a life happens here; the pages only show the result.
-import { nextTick, onMounted, ref, watch } from 'vue'
-import { Loader2, RotateCcw, Send, Wrench, X } from '@lucide/vue'
+// The conversations, beside every page: the Assistant and each crew member.
+// Everything that changes a life happens here; pages only show the result.
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { ArrowDown, ChevronDown, RotateCcw, X } from '@lucide/vue'
 import Markdown from './Markdown.vue'
-import { assistant, loadHistory, newConversation, sendDraft, setOpen, toolWords } from '../assistant'
+import AgentBadge from './chat/AgentBadge.vue'
+import Composer from './chat/Composer.vue'
+import MemoryList from './chat/MemoryList.vue'
+import TurnView from './chat/TurnView.vue'
+import { ASSISTANT, conversation, newConversation, panel, setOpen, talkTo } from '../assistant'
+import { useRead } from '../data'
 
-const box = ref<HTMLTextAreaElement>()
-const scroller = ref<HTMLElement>()
-
-onMounted(loadHistory)
-
-watch(
-  () => assistant.focusTick,
-  () => {
-    box.value?.focus()
-    const n = assistant.draft.length
-    box.value?.setSelectionRange(n, n)
-  },
+const { data: crew } = useRead('list_crew')
+const member = computed(() => crew.value?.find((m) => m.id === panel.agent))
+const me = computed(() =>
+  panel.agent === ASSISTANT ? { id: ASSISTANT, name: 'Assistant' } : { id: panel.agent, name: member.value?.name ?? panel.agent },
 )
+const c = computed(() => conversation(panel.agent))
+const doing = computed(() => {
+  const p = c.value.pending
+  if (!p) return null
+  const last = p.steps[p.steps.length - 1]
+  if (last && 'Tool' in last) return `đang ${last.Tool.name}`
+  if (last && 'Thinking' in last) return 'đang suy nghĩ'
+  return 'đang làm'
+})
+const disabled = computed(() => (member.value?.status === 'retired' ? `${member.value.name} đã nghỉ. Nhờ Assistant gọi lại nếu cần.` : undefined))
+const picking = ref(false)
+const active = computed(() => (crew.value ?? []).filter((m) => m.status === 'active'))
 
-function stick() {
+// Follow new output while near the bottom; let go once the user scrolls up.
+const feed = ref<HTMLElement>()
+const pinned = ref(true)
+function onScroll() {
+  const el = feed.value
+  if (el) pinned.value = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+}
+function toBottom() {
   void nextTick(() => {
-    const el = scroller.value
+    const el = feed.value
     if (el) el.scrollTop = el.scrollHeight
+    pinned.value = true
   })
 }
-watch(() => [assistant.turns.length, assistant.pending?.steps.length, assistant.pending?.steps.at(-1)?.text.length], stick)
-onMounted(stick)
+const growth = computed(() => {
+  const p = c.value.pending
+  const tail = p?.steps[p.steps.length - 1]
+  return `${panel.agent}:${c.value.turns.length}:${p?.steps.length ?? -1}:${tail && 'Text' in tail ? tail.Text.length : 0}`
+})
+watch(growth, () => { if (pinned.value) toBottom() })
+watch(() => panel.agent, toBottom)
+onMounted(toBottom)
 
-function key(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-    e.preventDefault()
-    if (!assistant.pending) sendDraft()
-  }
-}
-
-const SUGGESTIONS = [
-  'Hôm nay mình nên làm gì?',
-  'Vừa chi 50k ăn sáng',
-  'Tối qua ngủ 7 tiếng',
-  'Nhìn lại tuần này giúp mình',
-]
+const SUGGESTIONS = ['Hôm nay mình nên làm gì?', 'Vừa chi 50k ăn sáng', 'Tối qua ngủ 7 tiếng', 'Mình muốn có một huấn luyện viên sức khoẻ riêng']
 </script>
 
 <template>
-  <aside class="flex h-full w-full flex-col border-l border-line bg-panel">
-    <header class="flex items-center gap-2 border-b border-line px-4 py-3">
-      <h2 class="text-sm font-semibold">Assistant</h2>
-      <span class="text-xs text-ink3">mọi thay đổi đi qua đây</span>
-      <button type="button" class="ml-auto text-ink3 hover:text-ink" title="Cuộc trò chuyện mới" @click="newConversation">
-        <RotateCcw :size="15" />
-      </button>
-      <button type="button" class="text-ink3 hover:text-ink" title="Đóng" @click="setOpen(false)">
-        <X :size="16" />
-      </button>
+  <aside class="flex h-full w-full flex-col border-l border-line bg-bg">
+    <!-- Header: who, what it is doing, tabs -->
+    <header class="border-b border-line bg-panel px-4 pt-3">
+      <div class="flex items-center gap-2">
+        <div class="relative min-w-0">
+          <button type="button" class="flex items-center gap-2 rounded-md py-0.5 pr-1 hover:bg-panel2" @click="picking = !picking">
+            <AgentBadge :id="me.id" :name="me.name" />
+            <span class="truncate text-[14px] font-bold">{{ me.name }}</span>
+            <ChevronDown :size="14" class="text-ink3" />
+          </button>
+          <div v-if="picking" class="absolute left-0 top-full z-30 mt-1 w-64 rounded-lg border border-line bg-panel p-1 shadow-lg" @mouseleave="picking = false">
+            <button
+              v-for="a in [{ id: ASSISTANT, name: 'Assistant', role: 'quản lý chung, thay đổi mọi thứ' }, ...active.map((m) => ({ id: m.id, name: m.name, role: m.role ?? '' }))]"
+              :key="a.id"
+              type="button"
+              class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel2"
+              :class="a.id === panel.agent ? 'bg-panel2' : ''"
+              @click="talkTo(a.id); picking = false"
+            >
+              <AgentBadge :id="a.id" :name="a.name" :size="20" />
+              <span class="min-w-0">
+                <span class="block truncate text-sm font-medium">{{ a.name }}</span>
+                <span class="block truncate text-[11px] text-ink3">{{ a.role }}</span>
+              </span>
+              <span v-if="conversation(a.id).pending" class="ml-auto size-1.5 rounded-full bg-violet" aria-label="đang làm" />
+            </button>
+            <RouterLink to="/crew" class="block rounded-md px-2 py-1.5 text-xs text-ink3 hover:bg-panel2" @click="picking = false">Quản lý crew…</RouterLink>
+          </div>
+        </div>
+        <button type="button" class="ml-auto text-ink3 hover:text-ink" title="Bắt đầu lại cuộc trò chuyện" @click="newConversation()">
+          <RotateCcw :size="15" />
+        </button>
+        <button type="button" class="text-ink3 hover:text-ink" title="Đóng" @click="setOpen(false)"><X :size="16" /></button>
+      </div>
+      <div class="mt-1 flex items-center gap-1.5 text-xs" :class="doing ? 'text-violet-text' : 'text-ink3'">
+        <span class="size-1.5 rounded-full" :class="doing ? 'animate-pulse bg-violet' : 'bg-good'" />
+        {{ doing ?? (member?.role ?? 'sẵn sàng; mọi thay đổi đi qua đây') }}
+      </div>
+      <nav class="mt-2 flex gap-4 text-xs">
+        <button
+          v-for="t in [{ id: 'chat', label: 'Trò chuyện' }, { id: 'memory', label: 'Memory' }, ...(member ? [{ id: 'about', label: 'Vai trò' }] : [])]"
+          :key="t.id"
+          type="button"
+          class="border-b-2 pb-2"
+          :class="panel.tab === t.id ? 'border-violet font-semibold text-ink' : 'border-transparent text-ink3 hover:text-ink'"
+          @click="panel.tab = t.id as typeof panel.tab"
+        >
+          {{ t.label }}
+        </button>
+      </nav>
     </header>
 
-    <div ref="scroller" class="flex-1 space-y-4 overflow-y-auto px-4 py-4 text-sm">
-      <div v-if="!assistant.turns.length && !assistant.pending" class="space-y-3 text-ink2">
-        <p>Kể cho lifeos điều vừa xảy ra, hoặc nhờ nó sắp xếp. Agent ghi lại, dashboard cập nhật ngay.</p>
-        <div class="flex flex-wrap gap-1.5">
-          <button
-            v-for="s in SUGGESTIONS"
-            :key="s"
-            type="button"
-            class="rounded-full border border-line px-2.5 py-1 text-xs hover:border-accent hover:text-accent"
-            @click="assistant.draft = s; box?.focus()"
-          >
-            {{ s }}
-          </button>
-        </div>
-      </div>
-
-      <template v-for="(t, i) in assistant.turns" :key="i">
-        <div class="ml-8 rounded-lg bg-accent-soft/50 px-3 py-2 whitespace-pre-wrap">{{ t.ask }}</div>
-        <div class="space-y-1.5">
-          <div v-if="t.reply.tools.length" class="flex flex-wrap gap-1">
-            <span v-for="(tool, j) in t.reply.tools" :key="j" class="inline-flex items-center gap-1 rounded bg-panel2 px-1.5 py-0.5 text-xs text-ink2">
-              <Wrench :size="11" /> {{ toolWords(tool) }}
-            </span>
+    <!-- Conversation -->
+    <template v-if="panel.tab === 'chat'">
+      <div class="relative min-h-0 flex-1">
+        <div ref="feed" class="h-full space-y-6 overflow-y-auto px-5 py-4" @scroll="onScroll">
+          <div v-if="c.loaded && !c.turns.length && !c.pending" class="space-y-3 text-sm text-ink2">
+            <p v-if="member">{{ member.name }} sẵn sàng. Kể cho {{ member.name }} điều thuộc phần của mình.</p>
+            <p v-else>Kể cho lifeos điều vừa xảy ra, hoặc nhờ nó sắp xếp. Agent ghi lại, dashboard cập nhật ngay.</p>
+            <div v-if="!member" class="flex flex-wrap gap-1.5">
+              <button
+                v-for="s in SUGGESTIONS"
+                :key="s"
+                type="button"
+                class="rounded-full border border-line px-2.5 py-1 text-xs hover:border-violet hover:text-violet-text"
+                @click="c.draft = s; panel.focusTick++"
+              >
+                {{ s }}
+              </button>
+            </div>
           </div>
-          <Markdown :source="t.reply.text" />
+          <TurnView
+            v-for="(t, i) in c.turns"
+            :key="i"
+            :ask="t.ask"
+            :at="t.at"
+            :steps="t.reply.steps"
+            :done="t.reply"
+            :agent="me"
+          />
+          <TurnView v-if="c.pending" :ask="c.pending.ask" :steps="c.pending.steps" :agent="me" live />
+          <div v-if="c.error" class="rounded-lg border border-critical/40 bg-critical-wash px-3 py-2 text-xs text-critical">{{ c.error }}</div>
         </div>
-      </template>
-
-      <template v-if="assistant.pending">
-        <div class="ml-8 rounded-lg bg-accent-soft/50 px-3 py-2 whitespace-pre-wrap">{{ assistant.pending.ask }}</div>
-        <div class="space-y-1.5">
-          <template v-for="(s, j) in assistant.pending.steps" :key="j">
-            <span v-if="s.kind === 'tool'" class="mr-1 inline-flex items-center gap-1 rounded bg-panel2 px-1.5 py-0.5 text-xs text-ink2">
-              <Wrench :size="11" /> {{ toolWords(s.text) }}
-            </span>
-            <Markdown v-else :source="s.text" />
-          </template>
-          <div class="flex items-center gap-1.5 text-xs text-ink3"><Loader2 :size="13" class="animate-spin" /> đang làm…</div>
-        </div>
-      </template>
-
-      <p v-if="assistant.error" class="rounded-lg border border-critical/40 px-3 py-2 text-critical">{{ assistant.error }}</p>
-    </div>
-
-    <form class="border-t border-line p-3" @submit.prevent="sendDraft">
-      <div class="flex items-end gap-2 rounded-lg border border-line bg-bg px-3 py-2 focus-within:border-accent">
-        <textarea
-          ref="box"
-          v-model="assistant.draft"
-          rows="2"
-          class="max-h-40 flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-ink3"
-          placeholder="Nói với lifeos… (Enter để gửi)"
-          @keydown="key"
-        />
-        <button type="submit" class="text-accent disabled:text-ink3" :disabled="!!assistant.pending || !assistant.draft.trim()" title="Gửi">
-          <Send :size="16" />
+        <button
+          v-if="!pinned"
+          type="button"
+          class="absolute bottom-3 right-4 inline-flex items-center gap-1 rounded-full border border-line bg-panel px-2.5 py-1 text-xs shadow"
+          @click="toBottom"
+        >
+          <ArrowDown :size="12" /> Mới nhất
         </button>
       </div>
-    </form>
+      <Composer :agent="me.id" :name="me.name" :disabled="disabled" class="border-t border-line bg-panel" />
+    </template>
+
+    <div v-else-if="panel.tab === 'memory'" class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <MemoryList :holder="me.id" />
+    </div>
+
+    <div v-else-if="member" class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 text-sm">
+      <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink2">
+        <span>Vai trò: {{ member.role ?? '–' }}</span>
+        <span>Model: {{ member.model ?? 'mặc định' }}</span>
+        <span>Effort: {{ member.effort ?? 'mặc định' }}</span>
+      </div>
+      <div class="text-xs text-ink2">Tool: {{ member.tools.length ? member.tools.join(', ') : 'mọi tool của lifeos' }}</div>
+      <Markdown :source="member.instructions || '_Chưa có hướng dẫn._'" class="rounded-lg border border-line bg-panel p-3" />
+      <p class="text-xs text-ink3">Muốn đổi vai trò hay hướng dẫn, nói với Assistant.</p>
+    </div>
   </aside>
 </template>

@@ -21,19 +21,28 @@ fn round_trip<T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + st
 
 #[test]
 fn calls_and_replies() {
+    let agent = || ASSISTANT.to_string();
     round_trip(Call::Read { tool: "dashboard".into(), input: "{}".into() });
-    round_trip(Call::Chat { message: "Hôm nay nên làm gì?".into() });
+    round_trip(Call::Chat { agent: agent(), message: "Hôm nay nên làm gì?".into() });
     round_trip(Call::Brief);
-    round_trip(Call::History);
-    round_trip(Call::ResetChat);
+    round_trip(Call::Stop { agent: "huan-luyen-vien".into() });
+    round_trip(Call::History { agent: agent() });
+    round_trip(Call::ResetChat { agent: agent() });
     round_trip(Call::Watch);
     round_trip(Reply::Json("{\"tasks\":[]}".into()));
-    round_trip(Reply::Progress(Progress::Text("Để mình xem…".into())));
-    round_trip(Reply::Progress(Progress::Tool("add_task".into())));
-    let done = ChatDone { text: "Xong".into(), tools: vec!["add_task".into()], cost_usd: None };
+    let steps = vec![
+        Step::Thinking("Xem lịch…".into()),
+        Step::Tool(ToolCall { id: "t1".into(), name: "add_task".into(), input: "{\"title\":\"x\"}".into() }),
+        Step::ToolDone(ToolOutcome { id: "t1".into(), output: "ok".into(), failed: false }),
+        Step::Text("Xong".into()),
+    ];
+    for step in &steps {
+        round_trip(Reply::Progress(step.clone()));
+    }
+    let done = ChatDone { steps, ms: 1200, cost_usd: None, error: None };
     round_trip(Reply::ChatDone(done.clone()));
-    round_trip(Reply::ChatDone(ChatDone { cost_usd: Some(0.01), ..done.clone() }));
-    round_trip(Reply::History(vec![Turn { ask: "Thêm việc".into(), reply: done }]));
+    round_trip(Reply::ChatDone(ChatDone { cost_usd: Some(0.01), error: Some("dừng".into()), ..done.clone() }));
+    round_trip(Reply::History(vec![Turn { ask: "Thêm việc".into(), at: "2026-11-25 09:00".into(), reply: done }]));
     round_trip(Reply::Changed(u64::MAX));
     round_trip(Reply::Done);
     round_trip(Reply::Failed("lỗi".into()));

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Check, Flame } from '@lucide/vue'
 import type { HabitStatus } from '../core/generated/HabitStatus'
-import { ask, assistant } from '../assistant'
+import { ask, busy } from '../assistant'
 import Heatmap from './Heatmap.vue'
 
 const props = defineProps<{ habit: HabitStatus; today: string; weeks?: number }>()
@@ -17,7 +17,7 @@ function done() {
       type="button"
       class="flex size-7 shrink-0 items-center justify-center rounded-full border"
       :class="habit.done_today ? 'border-good bg-good text-white' : 'border-line text-ink3 hover:border-accent hover:text-accent'"
-      :disabled="habit.done_today || !!assistant.pending"
+      :disabled="habit.done_today || busy()"
       :title="habit.done_today ? 'Hôm nay đã làm' : 'Nhờ agent ghi hôm nay đã làm'"
       @click="done"
     >

@@ -15,10 +15,12 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::life::crew::*;
 use crate::life::goals::*;
 use crate::life::habits::*;
 use crate::life::health::*;
 use crate::life::inbox::*;
+use crate::life::memory::*;
 use crate::life::money::*;
 use crate::life::notes::*;
 use crate::life::people::*;
@@ -111,7 +113,7 @@ macro_rules! access {
 }
 
 macro_rules! tools {
-    ($( $access:ident $name:literal: $input:ty => $output:ty, $desc:literal, |$life:ident, $arg:ident| $body:expr; )*) => {
+    ($( $access:ident $name:literal: $input:ty => $output:ty, $desc:literal, |$life:ident, $arg:ident $(, $who:ident)?| $body:expr; )*) => {
         pub fn specs() -> Vec<ToolSpec> {
             vec![$(ToolSpec {
                 name: $name,
@@ -125,14 +127,17 @@ macro_rules! tools {
             specs().into_iter().find(|s| s.name == name)
         }
 
-        /// Runs a tool by name, after picking up hand edits to the vault.
-        /// Errors are meant to be shown to the model.
-        pub fn call(life: &mut Life, name: &str, input: Value) -> Result<Value> {
+        /// Runs a tool by name for `caller` (`ASSISTANT`, or a crew member
+        /// id), after picking up hand edits to the vault. Errors are meant to
+        /// be shown to the model.
+        pub fn call(life: &mut Life, caller: &str, name: &str, input: Value) -> Result<Value> {
             life.sync_index()?;
+            let _ = caller;
             match name {
                 $($name => {
                     let $arg: $input = parse($name, input)?;
                     let $life = &*life;
+                    $(let $who = caller;)?
                     let out: Result<$output> = $body;
                     let out = out?;
                     let value = serde_json::to_value(out)?;
@@ -327,6 +332,37 @@ tools! {
     write "resolve_inbox": RowId => (),
         "Mark an inbox item sorted, once it became a task, note, person… or was dropped.",
         |life, i| life.resolve_inbox(i.id);
+
+    // --------------------------------------------------------------- memory
+    read "recall": Recall => Vec<Memory>,
+        "Search what you remember (your own memories, and for a crew member the Assistant's memories about the user too). lifeos already puts the most relevant ones in front of each message; search when you need more.",
+        |life, i, who| life.recall(who, &i.query, i.limit.unwrap_or(8));
+    read "list_memories": ListMemories => Vec<Memory>,
+        "Every memory, newest first, or those matching words: for reviewing or tidying what is remembered.",
+        |life, i| life.memories(&i);
+    write "remember": Remember => Memory,
+        "Remember something for future conversations: a fact about the user's life, a preference, a principle they live by, a lesson, a decision with its reason, an intent. One claim per memory; check `recall` first and pass `replaces` instead of adding a duplicate.",
+        |life, i, who| life.remember(who, i);
+    write "forget": Forget => (),
+        "Forget a memory that is wrong or no longer holds, saying why.",
+        |life, i, who| life.forget(who, i);
+
+    // ----------------------------------------------------------------- crew
+    read "list_crew": Nothing => Vec<CrewMember>,
+        "The crew: agents the user asked for, each with a role, instructions, tools and its own memory and conversation.",
+        |life, _i| life.crew();
+    read "crew_member": MemberId => CrewMember,
+        "One crew member in full, with its instructions.",
+        |life, i| life.member(&i.id);
+    write "add_member": AddMember => CrewMember,
+        "Add a crew member (crew/<id>.md) when the user wants a dedicated agent for part of their life, e.g. a health coach or a money adviser. Write its instructions in second person: its focus, tone, what to watch, when to speak up. Limit its tools to its area when that makes sense.",
+        |life, i| life.add_member(i);
+    write "update_member": UpdateMember => CrewMember,
+        "Change a crew member: name, role, instructions, model, effort, tools.",
+        |life, i| life.update_member(i);
+    write "retire_member": MemberId => CrewMember,
+        "Retire a crew member: it stops taking messages; its file and memories stay.",
+        |life, i| life.retire_member(&i.id);
 }
 
 #[cfg(test)]
@@ -352,16 +388,16 @@ mod tests {
     fn call_dispatches_and_rejects_bad_input() {
         let dir = tempfile::tempdir().unwrap();
         let mut life = Life::open_with_memory_db(dir.path()).unwrap();
-        let out = call(&mut life, "add_task", json!({ "title": "Gọi mẹ", "due": "2026-12-01", "priority": "high" })).unwrap();
+        let out = call(&mut life, ASSISTANT, "add_task", json!({ "title": "Gọi mẹ", "due": "2026-12-01", "priority": "high" })).unwrap();
         assert_eq!(out["id"], "goi-me");
-        let list = call(&mut life, "list_tasks", Value::Null).unwrap();
+        let list = call(&mut life, ASSISTANT, "list_tasks", Value::Null).unwrap();
         assert_eq!(list.as_array().unwrap().len(), 1);
-        assert!(call(&mut life, "add_task", json!({ "title": "x", "bogus": 1 })).is_err());
-        assert!(call(&mut life, "add_task", json!({ "title": "x", "priority": "urgent" })).is_err());
-        assert!(call(&mut life, "nope", json!({})).is_err());
-        let item = call(&mut life, "capture", json!({ "text": "ý tưởng" })).unwrap();
-        assert_eq!(call(&mut life, "resolve_inbox", json!({ "id": item["id"] })).unwrap(), json!({ "ok": true }));
-        let dash = call(&mut life, "dashboard", json!({})).unwrap();
+        assert!(call(&mut life, ASSISTANT, "add_task", json!({ "title": "x", "bogus": 1 })).is_err());
+        assert!(call(&mut life, ASSISTANT, "add_task", json!({ "title": "x", "priority": "urgent" })).is_err());
+        assert!(call(&mut life, ASSISTANT, "nope", json!({})).is_err());
+        let item = call(&mut life, ASSISTANT, "capture", json!({ "text": "ý tưởng" })).unwrap();
+        assert_eq!(call(&mut life, ASSISTANT, "resolve_inbox", json!({ "id": item["id"] })).unwrap(), json!({ "ok": true }));
+        let dash = call(&mut life, ASSISTANT, "dashboard", json!({})).unwrap();
         assert!(dash["tasks"].is_object());
     }
 

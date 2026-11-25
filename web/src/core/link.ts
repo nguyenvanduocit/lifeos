@@ -10,11 +10,14 @@ import { ref, shallowReactive } from 'vue'
 import init, { Link } from './pkg/web/lifeos_web_client.js'
 import type { ChatDone } from './generated/ChatDone'
 import type { LinkInfo } from './generated/LinkInfo'
-import type { Progress } from './generated/Progress'
+import type { Step } from './generated/Step'
 import type { Turn } from './generated/Turn'
 import type { ReadTool, ReadTools } from './generated/tools'
 
-export type { ChatDone, Progress, Turn, ReadTool, ReadTools }
+export type { ChatDone, Step, Turn, ReadTool, ReadTools }
+
+/** Who the Assistant is, among the agents a page can talk to. */
+export const ASSISTANT = 'assistant'
 
 export const linkState = shallowReactive({
   status: 'connecting' as 'connecting' | 'open' | 'down',
@@ -67,20 +70,24 @@ export async function read<T extends ReadTool>(tool: T, input: ReadTools[T]['inp
   return (await connect()).read(tool, input) as Promise<ReadTools[T]['output']>
 }
 
-export async function chat(message: string, onProgress: (p: Progress) => void): Promise<ChatDone> {
-  return (await connect()).chat(message, onProgress) as Promise<ChatDone>
+export async function chat(agent: string, message: string, onStep: (s: Step) => void): Promise<ChatDone> {
+  return (await connect()).chat(agent, message, onStep) as Promise<ChatDone>
 }
 
-export async function brief(onProgress: (p: Progress) => void): Promise<ChatDone> {
-  return (await connect()).brief(onProgress) as Promise<ChatDone>
+export async function brief(onStep: (s: Step) => void): Promise<ChatDone> {
+  return (await connect()).brief(onStep) as Promise<ChatDone>
 }
 
-export async function history(): Promise<Turn[]> {
-  return (await connect()).history() as Promise<Turn[]>
+export async function stop(agent: string): Promise<void> {
+  await (await connect()).stop(agent)
 }
 
-export async function resetChat(): Promise<void> {
-  await (await connect()).resetChat()
+export async function history(agent: string): Promise<Turn[]> {
+  return (await connect()).history(agent) as Promise<Turn[]>
+}
+
+export async function resetChat(agent: string): Promise<void> {
+  await (await connect()).resetChat(agent)
 }
 
 export function start(): void {

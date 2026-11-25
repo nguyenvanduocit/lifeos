@@ -129,6 +129,31 @@ const MIGRATIONS: &[&str] = &[
         done    INTEGER NOT NULL DEFAULT 0
     );
     "#,
+    // v3: what agents remember, and every conversation turn (so a restart
+    // loses neither).
+    r#"
+    CREATE TABLE memories(
+        id      INTEGER PRIMARY KEY,
+        holder  TEXT NOT NULL,
+        kind    TEXT NOT NULL,
+        title   TEXT NOT NULL,
+        body    TEXT NOT NULL,
+        created TEXT NOT NULL,
+        updated TEXT NOT NULL,
+        ended   TEXT,
+        why_ended TEXT,
+        recalled INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX memories_holder ON memories(holder, ended);
+    CREATE VIRTUAL TABLE memories_fts USING fts5(title, body, tokenize = 'unicode61 remove_diacritics 2');
+    CREATE TABLE turns(
+        id    INTEGER PRIMARY KEY,
+        agent TEXT NOT NULL,
+        at    TEXT NOT NULL,
+        turn  TEXT NOT NULL
+    );
+    CREATE INDEX turns_agent ON turns(agent, id);
+    "#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

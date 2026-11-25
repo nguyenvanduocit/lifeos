@@ -24,6 +24,13 @@
   --warning: #fab219;
   --serious: #ec835a;
   --critical: #d03b3b;
+  /* The agents' hue (as in remit): violet marks what an agent says or does. */
+  --violet: #7a5af5;
+  --violet-text: #5b3fd6;
+  --violet-wash: #f3effe;
+  --violet-line: #d9cffc;
+  --panel3: #ecebe7;
+  --critical-wash: #fdf0ef;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -44,6 +51,12 @@
     --heat-2: #256abf;
     --heat-3: #3987e5;
     --heat-4: #86b6ef;
+    --violet: #a98bff;
+    --violet-text: #c7b6ff;
+    --violet-wash: #16132a;
+    --violet-line: #4a3a7a;
+    --panel3: #2a2a27;
+    --critical-wash: #2a1414;
   }
 }
 
@@ -61,6 +74,13 @@
   --color-warning: var(--warning);
   --color-serious: var(--serious);
   --color-critical: var(--critical);
+  --color-violet: var(--violet);
+  --color-violet-text: var(--violet-text);
+  --color-violet-wash: var(--violet-wash);
+  --color-violet-line: var(--violet-line);
+  --color-panel3: var(--panel3);
+  --color-critical-wash: var(--critical-wash);
+  --font-mono: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -97,3 +117,30 @@ body {
 .prose-life code { background: var(--panel2); padding: 0 0.25em; border-radius: 4px; font-size: 0.9em; }
 .prose-life strong { font-weight: 600; }
 .prose-life > :first-child { margin-top: 0; }
+
+/* Your own message, as in remit: a bubble with a tucked corner. */
+.owner-bubble {
+  border: 1px solid var(--line);
+  border-radius: 12px 12px 3px 12px;
+  background: var(--panel3);
+}
+.prose-life pre {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.5em 0.75em;
+  overflow-x: auto;
+  font-size: 0.85em;
+}
+@keyframes sheen {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+.sheen {
+  background: linear-gradient(90deg, var(--ink3) 0%, var(--ink) 50%, var(--ink3) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: sheen 1.6s linear infinite;
+}

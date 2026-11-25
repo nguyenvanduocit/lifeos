@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Check, Flame } from '@lucide/vue'
 import { useRead } from '../data'
-import { ask, assistant } from '../assistant'
+import { ask, busy } from '../assistant'
 import { todayIso } from '../format'
 import AskChip from '../components/AskChip.vue'
 import Empty from '../components/Empty.vue'
@@ -32,7 +32,7 @@ const today = todayIso()
           type="button"
           class="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs"
           :class="h.done_today ? 'border-good text-good' : 'border-line text-ink2 hover:border-accent hover:text-accent'"
-          :disabled="h.done_today || !!assistant.pending"
+          :disabled="h.done_today || busy()"
           @click="ask(`Ghi thói quen “${h.habit}” hôm nay.`)"
         >
           <Check :size="13" /> {{ h.done_today ? 'Hôm nay đã làm' : 'Ghi hôm nay' }}

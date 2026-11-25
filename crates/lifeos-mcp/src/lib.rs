@@ -66,7 +66,7 @@ pub fn handle_line(life: &mut Life, line: &str) -> Option<Value> {
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
             let args = params.get("arguments").cloned().unwrap_or(Value::Null);
-            match tools::call(life, name, args) {
+            match tools::call(life, lifeos_core::life::ASSISTANT, name, args) {
                 Ok(value) => json!({
                     "content": [{ "type": "text", "text": value.to_string() }],
                 }),

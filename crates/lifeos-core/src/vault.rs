@@ -23,6 +23,7 @@ pub fn folder(kind: Kind) -> &'static str {
         Kind::Journal => "journal",
         Kind::Note => "notes",
         Kind::Review => "reviews",
+        Kind::Crew => "crew",
     }
 }
 
@@ -57,6 +58,18 @@ pub struct Frontmatter {
     /// Person: be in touch at least this often.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contact_every_days: Option<u32>,
+    /// Crew member: what they do for the user, e.g. "huấn luyện viên sức khoẻ".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// Crew member: Claude Code model alias or id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Crew member: low | medium | high | xhigh | max.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// Crew member: the tools it may use; empty means every lifeos tool.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

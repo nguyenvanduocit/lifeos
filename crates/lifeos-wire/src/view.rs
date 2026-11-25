@@ -20,10 +20,13 @@ pub enum Kind {
     Note,
     /// A brief or a review the agent wrote.
     Review,
+    /// A crew member: an agent with its own role and instructions.
+    Crew,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 6] = [Kind::Task, Kind::Goal, Kind::Person, Kind::Journal, Kind::Note, Kind::Review];
+    pub const ALL: [Kind; 7] =
+        [Kind::Task, Kind::Goal, Kind::Person, Kind::Journal, Kind::Note, Kind::Review, Kind::Crew];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -33,6 +36,7 @@ impl Kind {
             Kind::Journal => "journal",
             Kind::Note => "note",
             Kind::Review => "review",
+            Kind::Crew => "crew",
         }
     }
 
@@ -319,4 +323,49 @@ pub struct Dashboard {
     /// Last 6 notes changed.
     pub notes: Vec<DocSummary>,
     pub inbox: Vec<InboxItem>,
+}
+
+// ----------------------------------------------------------------------- crew
+
+/// An agent the user asked for, with its own role, instructions, memory and
+/// conversation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct CrewMember {
+    pub id: String,
+    pub name: String,
+    pub role: Option<String>,
+    /// Added to its system prompt, Markdown.
+    pub instructions: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    /// Tools it may use; empty means every lifeos tool.
+    pub tools: Vec<String>,
+    /// active | retired
+    pub status: String,
+    /// How many things it remembers.
+    pub memories: u32,
+}
+
+// --------------------------------------------------------------------- memory
+
+/// Something an agent remembers across conversations.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct Memory {
+    pub id: i64,
+    /// `assistant`, or the crew member who holds it.
+    pub holder: String,
+    /// fact | preference | principle | lesson | decision | intent
+    pub kind: String,
+    pub title: String,
+    pub body: String,
+    /// `YYYY-MM-DD HH:MM`.
+    pub created: String,
+    pub updated: String,
+    /// Set once forgotten (or replaced), with why.
+    pub ended: Option<String>,
+    pub why_ended: Option<String>,
+    /// How many times it was brought back into a conversation.
+    pub recalled: u32,
 }

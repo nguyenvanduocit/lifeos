@@ -16,16 +16,27 @@ macro_rules! input {
 
 /// A closed set of words a tool input takes.
 macro_rules! choice {
-    ($(#[$m:meta])* pub enum $name:ident { $($(#[$vm:meta])* $variant:ident => $word:literal,)* }) => {
+    ($(#[$m:meta])* pub enum $name:ident {
+        $(#[$fm:meta])* $first:ident => $fword:literal,
+        $($(#[$vm:meta])* $variant:ident => $word:literal,)*
+    }) => {
         $(#[$m])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, schemars::JsonSchema)]
         #[serde(rename_all = "lowercase")]
         #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, rename_all = "lowercase"))]
-        pub enum $name { $($(#[$vm])* $variant,)* }
+        pub enum $name { $(#[$fm])* $first, $($(#[$vm])* $variant,)* }
 
         impl $name {
             pub fn as_str(self) -> &'static str {
-                match self { $($name::$variant => $word,)* }
+                match self { $name::$first => $fword, $($name::$variant => $word,)* }
+            }
+        }
+
+        /// The first choice (only for `Default` on inputs; a required field
+        /// is still required by the parser).
+        impl Default for $name {
+            fn default() -> Self {
+                $name::$first
             }
         }
     };

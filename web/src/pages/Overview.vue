@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { Loader2, Sunrise } from '@lucide/vue'
 import { useRead } from '../data'
-import { BRIEF_ASK, assistant, writeBrief } from '../assistant'
+import { BRIEF_ASK, busy, conversation, ASSISTANT, writeBrief } from '../assistant'
 import { compact, greeting, longDay, money, num, shortDay } from '../format'
 import AskChip from '../components/AskChip.vue'
 import Bars from '../components/Bars.vue'
@@ -50,10 +50,10 @@ const spendBars = computed(() => (d.value?.money.daily_spending ?? []).map((p) =
         <button
           type="button"
           class="ml-auto inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-xs text-ink2 hover:border-accent hover:text-accent disabled:opacity-50"
-          :disabled="!!assistant.pending"
+          :disabled="busy()"
           @click="writeBrief"
         >
-          <Loader2 v-if="assistant.pending?.ask === BRIEF_ASK" :size="12" class="animate-spin" />
+          <Loader2 v-if="conversation(ASSISTANT).pending?.ask === BRIEF_ASK" :size="12" class="animate-spin" />
           {{ briefIsToday ? 'Viết lại' : 'Nhờ agent viết' }}
         </button>
       </div>

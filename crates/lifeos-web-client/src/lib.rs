@@ -75,13 +75,19 @@ impl Link {
         })
     }
 
-    /// Sends one message to the agent. `onProgress` receives each `Progress`
-    /// while it works; resolves to a `ChatDone`.
-    pub fn chat(&self, message: String, on_progress: Function) -> Promise {
+    /// Sends one message to an agent (`assistant` or a crew member id).
+    /// `onStep` receives each `Step` while it works; resolves to a `ChatDone`.
+    pub fn chat(&self, agent: String, message: String, on_step: Function) -> Promise {
         let session = self.session.clone();
         future_to_promise(async move {
-            finish(call(&session, Call::Chat { message }, Some(on_progress)).await?)
+            finish(call(&session, Call::Chat { agent, message }, Some(on_step)).await?)
         })
+    }
+
+    /// Stops what an agent is doing now.
+    pub fn stop(&self, agent: String) -> Promise {
+        let session = self.session.clone();
+        future_to_promise(async move { finish(call(&session, Call::Stop { agent }, None).await?) })
     }
 
     /// Asks the agent to write today's morning brief; like `chat`.
@@ -90,10 +96,10 @@ impl Link {
         future_to_promise(async move { finish(call(&session, Call::Brief, Some(on_progress)).await?) })
     }
 
-    /// Resolves to the conversation so far, a `Turn[]`.
-    pub fn history(&self) -> Promise {
+    /// Resolves to an agent's conversation so far, a `Turn[]`.
+    pub fn history(&self, agent: String) -> Promise {
         let session = self.session.clone();
-        future_to_promise(async move { finish(call(&session, Call::History, None).await?) })
+        future_to_promise(async move { finish(call(&session, Call::History { agent }, None).await?) })
     }
 
     /// Calls `onChange(revision)` now and whenever the data changes. Resolves
@@ -122,11 +128,11 @@ impl Link {
         })
     }
 
-    /// Forgets the conversation.
+    /// Starts an agent's conversation over.
     #[wasm_bindgen(js_name = resetChat)]
-    pub fn reset_chat(&self) -> Promise {
+    pub fn reset_chat(&self, agent: String) -> Promise {
         let session = self.session.clone();
-        future_to_promise(async move { finish(call(&session, Call::ResetChat, None).await?) })
+        future_to_promise(async move { finish(call(&session, Call::ResetChat { agent }, None).await?) })
     }
 
     /// Resolves (to an error message) once the link is gone, so the page can redial.

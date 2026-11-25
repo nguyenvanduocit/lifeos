@@ -177,10 +177,11 @@ async fn handle(
             _ = tokio::time::sleep(Duration::from_secs(4)) => bot.typing(chat_id).await,
         }
     };
-    if let Some(id) = &reply.session_id {
-        life.lock().expect("life lock").kv_set(&session_key(chat_id), id)?;
+    if let Some(id) = agent.session_id() {
+        life.lock().expect("life lock").kv_set(&session_key(chat_id), &id)?;
     }
-    let text = if reply.text.trim().is_empty() { "(không có trả lời)" } else { reply.text.as_str() };
+    let text = lifeos_agent::reply_text(&reply);
+    let text = if text.trim().is_empty() { "(không có trả lời)" } else { text.as_str() };
     bot.send(chat_id, text).await
 }
 

@@ -29,6 +29,9 @@ pub use view::*;
 /// The path every WebTransport session is opened at.
 pub const PATH: &str = "/link";
 
+/// Who a chat is with: the Assistant, or a crew member by id.
+pub const ASSISTANT: &str = "assistant";
+
 /// A request from a client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS), ts(export))]
@@ -36,14 +39,17 @@ pub enum Call {
     /// Runs a `read` tool; `input` and the reply are JSON (the types are in
     /// `ReadTools`, generated from `tools!`). Replies `Json`.
     Read { tool: String, input: String },
-    /// One message to the agent; replies `Progress`… then `ChatDone`.
-    Chat { message: String },
-    /// Asks the agent to write today's morning brief; replies `Progress`… then `ChatDone`.
+    /// One message to an agent (`ASSISTANT` or a crew member id); replies
+    /// `Progress`… then `ChatDone`.
+    Chat { agent: String, message: String },
+    /// Asks the Assistant to write today's morning brief; like `Chat`.
     Brief,
-    /// The conversation so far; replies `History`.
-    History,
-    /// Forget the conversation; replies `Done`.
-    ResetChat,
+    /// Stops what an agent is doing now; replies `Done`.
+    Stop { agent: String },
+    /// An agent's conversation so far, oldest first; replies `History`.
+    History { agent: String },
+    /// Starts an agent's conversation over; replies `Done`.
+    ResetChat { agent: String },
     /// Replies `Changed` now and after every change, until the session ends.
     Watch,
 }
@@ -54,7 +60,7 @@ pub enum Call {
 pub enum Reply {
     Json(String),
     /// The agent is still working; more frames follow.
-    Progress(Progress),
+    Progress(Step),
     ChatDone(ChatDone),
     History(Vec<Turn>),
     /// The data changed; read again. Carries a counter that only grows.
@@ -63,31 +69,59 @@ pub enum Reply {
     Failed(String),
 }
 
-/// One exchange with the agent.
+/// One thing an agent did while answering, in order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS), ts(export))]
-pub struct Turn {
-    /// What the user (or the page, for a brief) asked.
-    pub ask: String,
-    pub reply: ChatDone,
+pub enum Step {
+    /// Words to the user (streamed: consecutive `Text` steps join up).
+    Text(String),
+    /// The model thinking aloud.
+    Thinking(String),
+    Tool(ToolCall),
+    ToolDone(ToolOutcome),
 }
 
-/// What the agent is doing while it works on a message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS), ts(export))]
-pub enum Progress {
-    Text(String),
-    /// A tool call, by tool name.
-    Tool(String),
+pub struct ToolCall {
+    pub id: String,
+    /// `add_task` for lifeos tools, `Read`, `WebSearch`… for built-in ones.
+    pub name: String,
+    /// The input as JSON text.
+    pub input: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct ToolOutcome {
+    /// The `ToolCall` this answers.
+    pub id: String,
+    /// What the tool gave back, as text (cut to a few KB).
+    pub output: String,
+    pub failed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS), ts(export))]
 pub struct ChatDone {
-    pub text: String,
-    /// Every tool the agent called for this message, in order.
-    pub tools: Vec<String>,
+    /// Everything the agent did, in order, the final words included.
+    pub steps: Vec<Step>,
+    /// How long it worked, in milliseconds.
+    pub ms: u64,
     pub cost_usd: Option<f64>,
+    /// Set when the turn did not finish (stopped, or an error).
+    pub error: Option<String>,
+}
+
+/// One exchange with an agent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS), ts(export))]
+pub struct Turn {
+    /// What the user (or lifeos, for a brief) asked.
+    pub ask: String,
+    /// When it was asked, `YYYY-MM-DD HH:MM`.
+    pub at: String,
+    pub reply: ChatDone,
 }
 
 /// How a page finds the link: served as JSON at `/link.json`.

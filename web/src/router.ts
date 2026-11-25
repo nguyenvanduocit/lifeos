@@ -11,6 +11,8 @@ export const PAGES = [
   { path: '/journal', name: 'Nhật ký', icon: 'NotebookPen', component: () => import('./pages/Journal.vue') },
   { path: '/notes', name: 'Ghi chú', icon: 'StickyNote', component: () => import('./pages/Notes.vue') },
   { path: '/inbox', name: 'Inbox', icon: 'Inbox', component: () => import('./pages/Inbox.vue') },
+  { path: '/crew', name: 'Crew', icon: 'Bot', component: () => import('./pages/Crew.vue') },
+  { path: '/memory', name: 'Memory', icon: 'Brain', component: () => import('./pages/Memory.vue') },
 ] as const
 
 export const router = createRouter({

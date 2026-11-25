@@ -4,6 +4,8 @@ AI agent giúp bạn quản trị cuộc đời: việc cần làm, mục tiêu,
 
 Web là một dashboard để nhìn toàn cảnh: bản tin buổi sáng, việc hôm nay, chuỗi thói quen, ai cần liên lạc, chi tiêu so với ngân sách, xu hướng sức khoẻ. Dashboard chỉ để xem; muốn thay đổi gì thì nói với agent trong bảng Assistant bên cạnh, và trang tự cập nhật khi agent làm xong.
 
+Ngoài Assistant, bạn có thể có một **crew**: nhờ Assistant tạo những agent riêng (huấn luyện viên sức khoẻ, cố vấn tài chính…), mỗi agent có vai trò, tool, memory và cuộc trò chuyện riêng; chọn agent ở đầu bảng Assistant để nói với nó. Agent tự ghi nhớ những điều đáng nhớ về bạn và tự nhớ lại khi cần; trang **Memory** cho xem tất cả, muốn quên điều gì thì nói với agent.
+
 ## Cần có
 
 - Rust (nightly, edition 2024), target `wasm32-unknown-unknown`, và `wasm-bindgen-cli` đúng bản crate đang ghim (`cargo install wasm-bindgen-cli --version 0.2.130 --locked`)

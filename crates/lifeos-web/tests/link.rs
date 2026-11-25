@@ -66,8 +66,12 @@ async fn the_page_reads_but_never_writes() {
     assert!(matches!(call(&session, &read("list_tasks", "{bad")).await, Reply::Failed(_)));
 
     // No conversation yet, and resetting one that never started needs no Claude.
-    assert_eq!(call(&session, &Call::History).await, Reply::History(vec![]));
-    assert_eq!(call(&session, &Call::ResetChat).await, Reply::Done);
+    assert_eq!(call(&session, &Call::History { agent: "assistant".into() }).await, Reply::History(vec![]));
+    assert_eq!(call(&session, &Call::ResetChat { agent: "assistant".into() }).await, Reply::Done);
+    assert_eq!(call(&session, &Call::Stop { agent: "assistant".into() }).await, Reply::Done);
+    // A crew member that does not exist cannot be talked to.
+    let chat = Call::Chat { agent: "nobody".into(), message: "chào".into() };
+    assert!(matches!(call(&session, &chat).await, Reply::Failed(_)));
 }
 
 #[tokio::test]

@@ -4,6 +4,8 @@
 //! One module per area of a life; this one holds what they share: opening,
 //! the derived document index, and reading and writing documents.
 
+pub mod chats;
+pub mod crew;
 pub mod dashboard;
 pub mod goals;
 pub mod habits;
@@ -11,6 +13,7 @@ pub mod inbox;
 pub mod money;
 pub mod notes;
 pub mod people;
+pub mod memory;
 pub mod tasks;
 pub mod health;
 

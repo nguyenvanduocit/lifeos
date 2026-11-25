@@ -19,10 +19,11 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::routing::get;
 use axum::Json;
-use lifeos_agent::{AgentConfig, LifeAgent, SharedLife};
+use lifeos_agent::{AgentConfig, SharedLife};
 use lifeos_agent::OnChange;
-use lifeos_wire::{LinkInfo, PATH, Turn};
-use tokio::sync::{Mutex, watch};
+use lifeos_wire::{LinkInfo, PATH};
+use std::collections::HashMap;
+use tokio::sync::watch;
 
 #[derive(Debug, Clone, Copy)]
 pub struct WebConfig {
@@ -37,11 +38,10 @@ pub struct WebConfig {
 pub(crate) struct AppState {
     pub life: SharedLife,
     pub agent_config: AgentConfig,
-    /// One conversation for the web app, started on the first message so the
-    /// dashboard works without Claude Code.
-    pub agent: Mutex<Option<LifeAgent>>,
-    /// That conversation, for pages opened later.
-    pub history: std::sync::Mutex<Vec<Turn>>,
+    /// One seat per agent the page talks to: the Assistant and each crew
+    /// member. A seat's agent starts on its first message, so the dashboard
+    /// works without Claude Code.
+    pub seats: std::sync::Mutex<HashMap<String, Arc<link::Seat>>>,
     /// Grows on every change; open pages watch it to read again.
     pub changes: watch::Sender<u64>,
 }
@@ -49,6 +49,10 @@ pub(crate) struct AppState {
 impl AppState {
     pub fn bump(&self) {
         self.changes.send_modify(|n| *n += 1);
+    }
+
+    pub fn seat(&self, agent: &str) -> Arc<link::Seat> {
+        self.seats.lock().expect("seats lock").entry(agent.to_string()).or_default().clone()
     }
 }
 
@@ -103,8 +107,7 @@ pub async fn start(life: SharedLife, mut agent_config: AgentConfig, config: WebC
     let state = Arc::new(AppState {
         life,
         agent_config,
-        agent: Mutex::new(None),
-        history: Default::default(),
+        seats: Default::default(),
         changes,
     });
     tokio::spawn(notice_outside_changes(state.clone()));

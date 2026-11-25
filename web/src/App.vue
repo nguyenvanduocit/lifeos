@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import {
-  HeartPulse, Inbox, LayoutDashboard, ListChecks, MessageCircle, NotebookPen, Repeat, StickyNote, Target, Users, Wallet,
+  Brain, Bot, HeartPulse, Inbox, LayoutDashboard, ListChecks, MessageCircle, NotebookPen, Repeat, StickyNote, Target, Users, Wallet,
 } from '@lucide/vue'
 import AssistantPanel from './components/AssistantPanel.vue'
-import { assistant, setOpen } from './assistant'
+import { panel, setOpen } from './assistant'
 import { linkState } from './core/link'
 import { PAGES } from './router'
 
-const ICONS = { LayoutDashboard, ListChecks, Target, Repeat, Users, Wallet, HeartPulse, NotebookPen, StickyNote, Inbox }
+const ICONS = { LayoutDashboard, ListChecks, Target, Repeat, Users, Wallet, HeartPulse, NotebookPen, StickyNote, Inbox, Bot, Brain }
 const status = computed(() =>
   linkState.status === 'open' ? null : linkState.status === 'connecting' ? 'Đang kết nối…' : `Mất kết nối, đang thử lại… ${linkState.error}`,
 )
@@ -33,7 +33,7 @@ const status = computed(() =>
         <span class="hidden lg:inline">{{ p.name }}</span>
       </RouterLink>
       <button
-        v-if="!assistant.open"
+        v-if="!panel.open"
         type="button"
         class="mt-auto flex items-center gap-2.5 rounded-lg bg-accent px-2 py-1.5 text-sm text-white"
         title="Mở Assistant"
@@ -50,7 +50,7 @@ const status = computed(() =>
       </div>
     </main>
 
-    <div v-if="assistant.open" class="fixed inset-0 z-20 md:static md:inset-auto md:z-auto md:w-[380px] md:shrink-0">
+    <div v-if="panel.open" class="fixed inset-0 z-20 md:static md:inset-auto md:z-auto md:w-[420px] md:shrink-0">
       <AssistantPanel />
     </div>
   </div>
