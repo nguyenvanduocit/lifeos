@@ -8,6 +8,10 @@
 
 use std::process::Command;
 
+// The stamp's own tests, and the `git status` arguments build.rs uses.
+#[path = "../src/stamp.rs"]
+mod stamp;
+
 /// What git prints for the sources this test was built from; `None` when git is absent or fails.
 fn git(args: &[&str]) -> Option<String> {
     let output = Command::new("git")
@@ -51,13 +55,7 @@ fn version_names_the_commit_the_binary_was_built_from() {
         return;
     };
     assert_eq!(head.len(), 40, "git rev-parse printed {head:?}");
-    let dirty = git(&[
-        "--no-optional-locks",
-        "status",
-        "--porcelain",
-        "--untracked-files=normal",
-    ])
-    .is_none_or(|changes| !changes.is_empty());
+    let dirty = git(stamp::STATUS).is_none_or(|changes| !changes.is_empty());
     let mark = if dirty { "-dirty" } else { "" };
     assert_eq!(
         printed,

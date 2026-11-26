@@ -12,9 +12,6 @@ use lifeos_wire::{ASSISTANT, Activity, EventKind, ToolState};
 use lifeos_core::Life;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-#[cfg(test)]
-mod stamp;
-
 const PROFILE_TEMPLATE: &str = include_str!("profile_template.md");
 
 /// What `--version` prints: the package version and the git commit this binary was built from, as build.rs read it.
