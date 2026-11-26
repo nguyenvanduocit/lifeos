@@ -9,6 +9,7 @@
     "verify": "vite --config verify/vite.config.ts",
     "verify:notes": "node verify/notes.mjs",
     "verify:drop": "node verify/drop.mjs",
+    "verify:drop:contract": "node verify/drop-contract.mjs",
     "verify:notes:contract": "node verify/contract.mjs"
   },
   "dependencies": {
