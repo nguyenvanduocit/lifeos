@@ -1,0 +1,71 @@
+# The repository's declared checks (CONTRIBUTING.md:14-19), on every pushed commit: `make test` first, then the
+# two that `make test` does not hold.
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # macOS on Apple silicon: the system LifeOS is written for (the Seatbelt jail, the desktop crates' macOS modules)
+    # and the one its tests were measured on. crates/jail/tests/jail.rs starts a real jail: on macOS through
+    # /usr/bin/sandbox-exec (crates/jail/src/plan_darwin.rs:10), which needs only a session that is not itself
+    # sandboxed; on Linux through unshare(CLONE_NEWUSER) without privilege
+    # (crates/jail/src/namespaces_linux.rs:65-69), which ubuntu-24.04 runners restrict through AppArmor. Inside an
+    # agent session the test fails (sandbox_apply: Operation not permitted, exit 71: Seatbelt does not nest); on a
+    # hosted runner it was not observed before this workflow's first run. It is not excluded: if it fails there,
+    # the run is red and says so.
+    runs-on: macos-26
+    # A cold build of the workspace is the long part; the cache below shortens the runs after it.
+    timeout-minutes: 90
+    env:
+      # Nightly, as CONTRIBUTING.md:6 and docs/getting-started.md:10 declare, at the date the tests were measured on
+      # (rustc 1.102.0-nightly 5df8c02af 2026-11-16), so that a newer nightly cannot turn a sound commit red. Move
+      # the date on purpose, in a commit of its own.
+      RUSTUP_TOOLCHAIN: nightly-2026-11-17
+    steps:
+      - uses: actions/checkout@v7
+
+      # docs/getting-started.md:10: the toolchain, with the target of the page's wasm.
+      - name: Rust toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --target wasm32-unknown-unknown --no-self-update
+
+      - uses: Swatinem/rust-cache@v2
+
+      # crates/lifeos-web-client/bind.sh:16-21 refuses any wasm-bindgen-cli but the version the crate pins
+      # (crates/lifeos-web-client/Cargo.toml:17), so the version is read from that line, as bind.sh reads it.
+      # When the cache already holds it, cargo leaves it as it is.
+      - name: wasm-bindgen-cli
+        run: |
+          want=$(sed -n 's/^wasm-bindgen = "=\(.*\)"/\1/p' crates/lifeos-web-client/Cargo.toml)
+          test -n "$want"
+          cargo install wasm-bindgen-cli --version "$want" --locked
+
+      # docs/getting-started.md:5 asks for Node.js 22.12 or later; 24 is the runner image's own.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # CONTRIBUTING.md:7. web/node_modules is not tracked, and the typecheck needs it.
+      - name: npm ci
+        run: npm ci
+        working-directory: web
+
+      # Makefile:26-29: the Rust tests, the dev wasm build and the Vue typecheck. The WebTransport test
+      # (CONTRIBUTING.md:16, crates/lifeos-web/tests/link.rs) is one of the workspace's tests, so it runs here.
+      - name: make test
+        run: make test
+
+      # Makefile:10-11, CONTRIBUTING.md:19: the generated TypeScript is the one the Rust types give.
+      - name: make check-gen
+        run: make check-gen
+
+      # Makefile:16-17, CONTRIBUTING.md:15: the production build of the page, which nothing above runs.
+      - name: make web
+        run: make web
