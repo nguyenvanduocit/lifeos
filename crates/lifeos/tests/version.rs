@@ -51,8 +51,13 @@ fn version_names_the_commit_the_binary_was_built_from() {
         return;
     };
     assert_eq!(head.len(), 40, "git rev-parse printed {head:?}");
-    let dirty = git(&["--no-optional-locks", "status", "--porcelain"])
-        .is_none_or(|changes| !changes.is_empty());
+    let dirty = git(&[
+        "--no-optional-locks",
+        "status",
+        "--porcelain",
+        "--untracked-files=normal",
+    ])
+    .is_none_or(|changes| !changes.is_empty());
     let mark = if dirty { "-dirty" } else { "" };
     assert_eq!(
         printed,

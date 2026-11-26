@@ -45,7 +45,15 @@ fn main() {
         None
     };
     // Without optional locks: a build must not hold the index against a git command run beside it.
-    let status = git(sources, &["--no-optional-locks", "status", "--porcelain"]);
+    let status = git(
+        sources,
+        &[
+            "--no-optional-locks",
+            "status",
+            "--porcelain",
+            "--untracked-files=normal",
+        ],
+    );
 
     let stamp = stamp::stamp(head.as_deref(), status.as_deref());
     if stamp == stamp::UNKNOWN {
