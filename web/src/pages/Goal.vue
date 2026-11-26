@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../components/ds/EntityId.vue'
 // A goal on its own page, laid out like a task's (docs/design.md, "Detail"): the trail back to Goals, the title and
 // progress, its tasks (open, then done) as table rows, its notes, and at the right a Details card with its facts.
 import { computed } from 'vue'
@@ -80,7 +79,6 @@ const ref_ = computed(() => (g.value ? `goal_${g.value.id}` : ''))
       <IconTile :icon="Target" :tone="g.status === 'active' ? 'goals' : 'neutral'" size="lg" />
       <div class="min-w-0 flex-1">
         <h1 class="text-[30px] leading-tight font-semibold tracking-[-0.02em] wrap-anywhere">{{ g.title }}</h1>
-        <EntityId :key="g.id" :value="`goal_${g.id}`" />
         <p v-if="view?.why" class="mt-1 text-[15px] text-ink2">{{ view.why }}</p>
       </div>
     </header>

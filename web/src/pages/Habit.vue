@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../components/ds/EntityId.vue'
 import PageActions from '../components/ds/PageActions.vue'
 // One habit on its own page: its streak and weeks as figures, the last twelve weeks as a heatmap, the weeks against
 // the target as bars, its facts in a Details card, and what the Assistant can change about it.
@@ -71,7 +70,6 @@ const rows = computed(() => {
       <IconTile :icon="habitIcon(h.habit)" tone="neutral" size="lg" />
       <div class="min-w-0 flex-1">
         <h1 class="text-[clamp(1.75rem,3.2vw,2.4rem)] leading-[1.1] font-semibold tracking-[-0.03em] first-letter:uppercase wrap-anywhere">{{ h.habit }}</h1>
-        <EntityId v-if="h.id" :key="h.id" :value="h.id" />
         <p class="mt-1 text-[14px] text-ink2">{{ cadence(h) }}<template v-if="h.unit"> · counted in {{ h.unit }}</template></p>
       </div>
       <PageActions><LogButton :habit="h.habit" :done="h.done_today" size="sm" /></PageActions>

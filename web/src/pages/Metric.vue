@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../components/ds/EntityId.vue'
 import PageActions from '../components/ds/PageActions.vue'
 // One health metric on its own page: the latest value large with its change, its figures over the range (?range=),
 // the line over the days, and each value with the change from the one before.
@@ -109,7 +108,7 @@ const cols = [
           <div v-for="r in rows" :key="r.id" role="row" data-cols :style="{ '--cols': GRID, '--cols-sm': 'minmax(0,1fr) auto' }"
             class="grid items-center gap-x-4 border-b border-line px-5 py-2.5 text-[14px] last:border-b-0">
             <div role="cell" class="truncate text-ink2">{{ r.day === todayIso() ? 'Today' : longDay(r.day) }}</div>
-            <div role="cell" class="tabular-nums"><span class="font-medium">{{ num(r.value) }}</span> <span class="text-ink3">{{ r.unit }}</span><EntityId class="ml-1" :value="`metric_${r.id}`" /></div>
+            <div role="cell" class="tabular-nums"><span class="font-medium">{{ num(r.value) }}</span> <span class="text-ink3">{{ r.unit }}</span></div>
             <div role="cell" class="hidden text-[13px] tabular-nums @min-[44rem]:block" :class="r.change ? 'text-ink2' : 'text-ink3'">{{ r.change === null ? '—' : signed(r.change) }}</div>
             <div role="cell" class="hidden min-w-0 truncate text-ink2 @min-[44rem]:block">{{ r.note ?? '' }}</div>
           </div>

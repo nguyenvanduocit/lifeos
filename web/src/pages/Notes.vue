@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../components/ds/EntityId.vue'
 // Notes, briefs and reviews as a list with a peek (docs/design.md, "List + peek"), and search across the whole vault.
 // The view, the search words and the open note live in the address (?view=, ?q=, ?peek=); on a wide screen a row opens
 // beside the list, on a narrow one on its own page.
@@ -131,7 +130,6 @@ function closePeek() {
         <LoadState :loading="peekLoading && !peeked" :error="peekError" label="note" @retry="retryPeek" />
         <template v-if="peeked">
           <h2 class="text-[22px] leading-snug font-semibold tracking-[-0.02em] wrap-anywhere">{{ peeked.summary.title }}</h2>
-          <EntityId :key="peeked.summary.path" :value="`${peeked.summary.kind}_${peeked.summary.id}`" />
           <div v-if="peeked.summary.tags.length" class="mt-2 flex flex-wrap gap-1.5">
             <span v-for="t in peeked.summary.tags" :key="t" class="rounded-md bg-panel2 px-1.5 py-0.5 text-[12.5px] text-ink2">#{{ t }}</span>
           </div>

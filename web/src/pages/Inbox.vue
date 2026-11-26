@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../components/ds/EntityId.vue'
 // The Inbox as a triage list (docs/design.md, "List"): what was captured, newest first, grouped by day. Each row reads
 // the item for its parts (where it came from, a title, the rest, a suggested step) and offers the ways out of the
 // Inbox as Assistant drafts. A source filter lives in the address (?source=).
@@ -88,7 +87,6 @@ const ref_ = (i: { id: number; text: string }) => `inbox_${i.id}`
             <IconTile :icon="SOURCES[i.parsed.source].icon" :tone="SOURCES[i.parsed.source].tone" />
             <div class="min-w-0 flex-1">
               <p class="text-[14.5px] leading-snug font-medium wrap-anywhere">{{ i.parsed.title }}</p>
-              <EntityId :value="`inbox_${i.id}`" />
               <p v-if="i.parsed.body" class="mt-0.5 line-clamp-2 text-[13.5px] text-ink2 wrap-anywhere" :title="i.parsed.body">{{ i.parsed.body }}</p>
               <p class="mt-1 flex flex-wrap items-center gap-x-1.5 text-[12.5px] text-ink3">
                 <span class="text-ink2">{{ i.parsed.from ?? SOURCES[i.parsed.source].label }}</span>

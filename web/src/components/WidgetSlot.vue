@@ -7,7 +7,6 @@ import { useRoute } from 'vue-router'
 import { AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogOverlay, AlertDialogPortal, AlertDialogRoot, AlertDialogTitle } from 'reka-ui'
 import type { CustomWidget } from '../core/generated/CustomWidget'
 import AskChip from './AskChip.vue'
-import EntityId from './ds/EntityId.vue'
 import Panel from './ds/Panel.vue'
 import WidgetBody from './WidgetBody.vue'
 import { Button } from './ui/button'
@@ -159,7 +158,6 @@ async function refresh(widget: CustomWidget) {
                   <Loader2 v-if="refreshing.has(widget.id)" class="size-4 motion-safe:animate-spin" />
                   <RefreshCw v-else class="size-4" />
                 </Button>
-                <EntityId :key="widget.id" :value="`widget_${widget.id}`" />
                 <AskChip ghost label="Edit widget" :words="`Update widget widget_${widget.id}: `" />
                 <Button size="icon" variant="ghost" class="size-8 text-ink3 hover:text-critical"
                   :aria-label="`Delete widget · ${widget.title}`" title="Delete widget" @click="confirmRemoval(widget, $event)">

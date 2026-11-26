@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../ds/EntityId.vue'
 // One run of a workflow script as a row: its name, who started it, how it stands and how far its steps got; opened,
 // each step (agents put to work, waits, questions to the owner) and what it returned or why it failed.
 import { computed, ref } from 'vue'
@@ -29,8 +28,7 @@ const STEP_TONE: Record<string, string> = { done: 'good', failed: 'critical', pe
       <StatusTag :tone="look.tone" :pulse="look.pulse">{{ look.label }}</StatusTag>
       <ChevronDown class="size-4 shrink-0 text-ink3 transition-transform" :class="open ? 'rotate-180' : ''" aria-hidden="true" />
     </button>
-    <div v-if="open" class="space-y-3 px-5 pb-4 pl-[3.85rem] text-[13px]">
-      <EntityId :value="`workflow_run_${run.id}`" />
+    <div v-if="open && (run.error || run.steps.length || run.result)" class="space-y-3 px-5 pb-4 pl-[3.85rem] text-[13px]">
       <p v-if="run.error" class="rounded-lg bg-critical-wash px-3 py-2 break-words text-critical">{{ run.error }}</p>
       <ol v-if="run.steps.length" class="overflow-hidden rounded-xl border border-line">
         <li v-for="s in run.steps" :key="s.seq" class="flex items-center gap-3 border-b border-line px-3.5 py-2 last:border-b-0">

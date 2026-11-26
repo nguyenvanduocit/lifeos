@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../ds/EntityId.vue'
 // One routine as a row: its mark, title, who does it and what it does, how it starts, when it runs next and how its
 // last run went; opened, the webhook's how-to and what the Assistant can change. The chips only draft.
 import { ref } from 'vue'
@@ -68,7 +67,6 @@ const open = ref(false)
         <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-[10px] px-2.5 text-[13px] text-ink2 hover:bg-panel2 hover:text-ink" @click="$emit('runs', routine.id)">
           <History class="size-3.5" aria-hidden="true" /> View runs
         </button>
-        <EntityId class="ml-auto" :value="`routine_${routine.id}`" />
       </div>
     </div>
   </li>

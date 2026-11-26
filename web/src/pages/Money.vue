@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../components/ds/EntityId.vue'
 // One month of money (docs/design.md, "Dashboard" over "List"): what went out against the budgets, day by day, where
 // it went, and every transaction of the month: none hidden; the table shows the newest and says how many more there
 // are. The month, a category and "show all" live in the address (?month=, ?cat=, ?all=1).
@@ -180,7 +179,6 @@ const empty = computed(() => !!m.value && !m.value.recent.length && !m.value.bud
               <div class="min-w-0">
                 <p class="truncate text-[14px] font-medium first-letter:uppercase">{{ t.category }}</p>
                 <p class="truncate text-[12.5px] text-ink3"><span class="@min-[44rem]:hidden">{{ day(t.day) }}<template v-if="t.note"> · </template></span>{{ t.note }}</p>
-                <EntityId :value="`transaction_${t.id}`" />
               </div>
             </div>
             <span role="cell" class="text-right text-[14px] font-medium whitespace-nowrap tabular-nums" :class="t.amount > 0 ? 'text-good' : 'text-ink'">

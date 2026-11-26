@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../ds/EntityId.vue'
 // One task, as the peek beside the list shows it and as its own page does (`page`): its title, its facts as a
 // property list, its notes, the other open tasks of its goal, and what the Assistant can do with it.
 import { computed } from 'vue'
@@ -63,7 +62,6 @@ const ref_ = computed(() => (t.value ? `task_${t.value.id}` : ''))
         <div class="flex items-start gap-3">
           <TaskCheck :task="t" :done="done" class="mt-1.5" />
           <h2 class="min-w-0 flex-1 font-semibold tracking-[-0.02em] wrap-anywhere" :class="page ? 'text-[30px] leading-tight' : 'text-[22px] leading-snug'">{{ t.title }}</h2>
-          <EntityId :key="t.id" :value="`task_${t.id}`" />
         </div>
 
         <div :class="page ? 'mt-8 grid items-start gap-8 @min-[52rem]:grid-cols-[minmax(0,1fr)_17rem]' : ''">

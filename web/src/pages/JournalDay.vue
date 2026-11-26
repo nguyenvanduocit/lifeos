@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../components/ds/EntityId.vue'
 import PageActions from '../components/ds/PageActions.vue'
 // One day of the journal on its own page: the date, the way to the entry before and after, the entry in a reading
 // column, and beside it the month and what the Assistant can do with the day.
@@ -52,7 +51,6 @@ const about = computed(() => (isToday.value ? 'today’s journal entry' : `the j
       <div class="min-w-0">
         <p class="mb-1 text-[14px] text-ink2">{{ isToday ? 'Today' : parseDay(day).getFullYear() }} · Week {{ isoWeek(day) }}</p>
         <h1 class="text-[clamp(1.75rem,3.2vw,2.4rem)] leading-[1.1] font-semibold tracking-[-0.03em]">{{ longDay(day) }}</h1>
-        <EntityId v-if="page" :key="day" :value="`journal_${day}`" />
       </div>
       <PageActions>
         <RouterLink :to="`/journal/${older ?? shift(-1)}`" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line2 bg-panel px-2.5 text-[13px] font-medium hover:bg-panel2"

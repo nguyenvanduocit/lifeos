@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../components/ds/EntityId.vue'
 import PageActions from '../components/ds/PageActions.vue'
 // One crew member's page: who it is and how it stands, its instructions, the work it handed and was handed, what it
 // remembers and the routines it runs, with its settings in a Details card at the side. Changes are asked of the
@@ -70,7 +69,6 @@ const ref_ = computed(() => (m.value ? `crew_${m.value.id}` : ''))
           <StatusTag v-else-if="busy(m.id)" tone="good" pulse>Working</StatusTag>
           <StatusTag v-else tone="neutral">Idle</StatusTag>
         </h1>
-        <EntityId :key="ref_" :value="ref_" />
         <p class="mt-1 text-[14.5px] text-ink2">{{ m.role ?? 'Crew member' }}<template v-if="card?.updated"> · active {{ ago(card.updated) }}</template></p>
       </div>
       <PageActions>

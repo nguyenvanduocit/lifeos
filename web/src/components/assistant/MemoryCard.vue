@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../ds/EntityId.vue'
 import { computed, ref } from 'vue';
 import type { Memory } from '../../core/generated/Memory';
 import type { Teaching } from '../../core/generated/Teaching';
@@ -59,7 +58,6 @@ const reading = ref(false);
   <li class="memory flex flex-col gap-1.5 rounded-lg px-3 py-2.5" :class="{ ended }" tabindex="-1" :data-memory-item="memory.id" :data-status="ended ? (replacedBy ? 'superseded' : 'forgotten') : 'active'">
     <div class="flex min-w-0 items-start gap-2">
       <span class="title min-w-0 flex-1 [overflow-wrap:anywhere]" data-title>{{ title }}</span>
-      <EntityId :value="`memory_${memory.id}`" />
       <Tip v-if="forget && !ended" text="Forget it: starts the words in the Assistant's box, and it forgets it once you send them">
         <Button class="-my-0.5 flex-none" variant="ghost" size="icon-xs" :aria-label="`Ask the Assistant to forget the memory ${title}`" data-forget @click="forget(memory)"><Icon name="trash" :size="12" /></Button>
       </Tip>

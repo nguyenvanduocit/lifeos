@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../components/ds/EntityId.vue'
 // One Vault item (agentes.chat ADR 0144 §7): its fields, who may use it beside them, and its recent uses. A new item
 // is this same page, empty (`/connections/vault/new?kind=`). A saved password or key stays behind its dots: changing
 // it means typing a new one, and the box empties the moment it is sent.
@@ -140,7 +139,6 @@ const canSave = computed(() => form.value.title.trim() && (!needsSecret.value ||
       <IconTile :icon="ICON[kind]" :tone="TONE[kind]" size="lg" />
       <div class="min-w-0">
         <h1 class="truncate text-[28px] leading-tight font-semibold tracking-[-0.03em]">{{ isNew ? `New ${KIND_LABEL[kind].toLowerCase()}` : item?.title }}</h1>
-        <EntityId v-if="item" :key="item.id" :value="`vault_item_${item.id}`" />
         <p class="text-[14px] text-ink2">{{ KIND_TEXT[kind] }}</p>
       </div>
     </div>

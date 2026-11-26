@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../components/ds/EntityId.vue'
 // Any document read on its own (docs/design.md, "Reader"): notes, reviews, journal entries and whatever has no page of
 // its own. A kind that has its own page (tasks, goals, people, crew: links.ts) is sent there.
 import { computed, watch } from 'vue'
@@ -59,7 +58,6 @@ const rows = computed(() => {
   <div v-if="data" class="@container max-w-[1080px]">
     <p class="mb-1 text-[14px] text-ink2">{{ KIND[data.summary.kind] ?? 'Document' }}<template v-if="words"> · {{ words }} words</template></p>
     <h1 class="text-[30px] leading-tight font-semibold tracking-[-0.02em] wrap-anywhere">{{ data.summary.title }}</h1>
-    <EntityId :key="data.summary.path" :value="`${data.summary.kind}_${data.summary.id}`" />
 
     <div class="mt-8 grid items-start gap-8 @min-[52rem]:grid-cols-[minmax(0,1fr)_17rem]">
       <div class="order-2 rounded-2xl border border-line bg-panel2 px-4 py-4 @min-[52rem]:sticky @min-[52rem]:top-0">

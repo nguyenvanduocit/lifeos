@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import EntityId from '../components/ds/EntityId.vue'
 import PageActions from '../components/ds/PageActions.vue'
 // A person on their own page, laid out like a task's: the trail back to People, their name with how things stand,
 // the times we spoke as a timeline beside notes, and their facts in a Details card at the right.
@@ -61,7 +60,6 @@ const since = (day: string) => {
       <Avatar :name="p.name" :size="56" />
       <div class="min-w-0 flex-1">
         <h1 class="text-[30px] leading-tight font-semibold tracking-[-0.02em] wrap-anywhere">{{ p.name }}</h1>
-        <EntityId :key="ref_" :value="ref_" />
         <p class="mt-1 flex flex-wrap items-center gap-x-2 text-[14px] text-ink2">
           <span v-if="p.relation" class="first-letter:uppercase">{{ p.relation }}</span>
           <span v-if="p.relation" class="text-ink3">·</span>
@@ -114,7 +112,6 @@ const since = (day: string) => {
                   <span v-if="i.channel" class="text-ink3 first-letter:uppercase">{{ i.channel }}</span>
                 </p>
                 <p v-if="i.note" class="mt-0.5 text-[14px] leading-relaxed text-ink2">{{ i.note }}</p>
-                <EntityId :value="`interaction_${i.id}`" />
               </div>
             </li>
           </ol>
