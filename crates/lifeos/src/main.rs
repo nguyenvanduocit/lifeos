@@ -12,10 +12,16 @@ use lifeos_wire::{ASSISTANT, Activity, EventKind, ToolState};
 use lifeos_core::Life;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+#[cfg(test)]
+mod stamp;
+
 const PROFILE_TEMPLATE: &str = include_str!("profile_template.md");
 
+/// What `--version` prints: the package version and the git commit this binary was built from, as build.rs read it.
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("LIFEOS_BUILD_COMMIT"), ")");
+
 #[derive(Parser)]
-#[command(name = "lifeos", version, about = "AI agent quản trị cuộc đời")]
+#[command(name = "lifeos", version = VERSION, about = "AI agent quản trị cuộc đời")]
 struct Cli {
     /// The vault: Markdown files plus `.lifeos/lifeos.db`.
     #[arg(long, global = true, env = "LIFEOS_HOME")]
