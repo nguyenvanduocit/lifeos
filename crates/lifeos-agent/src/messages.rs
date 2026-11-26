@@ -769,6 +769,15 @@ mod tests {
             })
             .await
             .expect("the librarian settled the teaching");
+            // The librarian settles a teaching by a tool call inside its turn, and the turn is counted when it ends
+            // (`run::turn`): what is read below is true once the turn has ended, not once the teaching is settled.
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while agents.view(lifeos_wire::LIBRARIAN).unwrap().card.turns < 1 {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .expect("the librarian's turn ended");
             let m = life.lock().unwrap().memory(1).unwrap();
             assert_eq!((m.holder.as_str(), m.source, m.title.as_str()), ("assistant", Some(1), "Không nhắc việc vào cuối tuần"));
             assert_eq!(agents.view(lifeos_wire::LIBRARIAN).unwrap().card.turns, 1);
