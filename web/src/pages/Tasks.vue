@@ -50,14 +50,19 @@ const groups = computed((): { key: string; title: string; urgent?: boolean; task
       const d = dayOf(t) ?? ''
       byDay.set(d, [...(byDay.get(d) ?? []), t])
     }
-    return [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([d, tasks]) => ({ key: d, title: `${relativeDay(d)} · ${longDay(d)}`, tasks }))
+    // The next 7 days by day, then everything dated after them in one group.
+    const later = x.later.filter(keep)
+    return [
+      ...[...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([d, tasks]) => ({ key: d, title: `${relativeDay(d)} · ${longDay(d)}`, tasks })),
+      ...(later.length ? [{ key: 'later', title: 'Later', tasks: later }] : []),
+    ]
   }
   if (view.value === 'anytime') return [{ key: 'anytime', title: 'No date', tasks: x.anytime.filter(keep) }].filter((g) => g.tasks.length)
   return [{ key: 'done', title: 'Completed', tasks: (doneList.value ?? []).filter(keep), done: true }].filter((g) => g.tasks.length)
 })
 const counts = computed(() => ({
   today: (v.value?.overdue.length ?? 0) + (v.value?.today.length ?? 0),
-  upcoming: v.value?.upcoming.length ?? 0,
+  upcoming: (v.value?.upcoming.length ?? 0) + (v.value?.later.length ?? 0),
   anytime: v.value?.anytime.length ?? 0,
 }))
 const viewOptions = computed(() => [
@@ -91,7 +96,7 @@ function closePeek() {
 }
 const empty = computed(() => ({
   today: 'Nothing due or planned today.',
-  upcoming: 'Nothing planned in the next 7 days.',
+  upcoming: 'Nothing planned ahead.',
   anytime: 'Every task has a date.',
   done: 'No completed tasks yet.',
 }[view.value]))

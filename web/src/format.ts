@@ -1,6 +1,7 @@
 const locale = 'en-US'
 const longDate = new Intl.DateTimeFormat(locale, { weekday: 'long', month: 'long', day: 'numeric' })
 const shortDate = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' })
+const shortDateYear = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', year: 'numeric' })
 const weekday = new Intl.DateTimeFormat(locale, { weekday: 'long' })
 const relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
 const compactNumber = new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 })
@@ -46,9 +47,12 @@ export function shortDay(day: string): string {
 
 export function relativeDay(day: string, from = todayIso()): string {
   const date = parseDay(day)
-  const diff = Math.round((date.getTime() - parseDay(from).getTime()) / 86_400_000)
+  const start = parseDay(from)
+  const diff = Math.round((date.getTime() - start.getTime()) / 86_400_000)
   if (diff <= 1) return relative.format(diff, 'day')
-  return diff < 7 ? weekday.format(date) : shortDate.format(date)
+  if (diff < 7) return weekday.format(date)
+  // A date in another year carries its year: "Dec 25" alone reads as this year's.
+  return (date.getFullYear() === start.getFullYear() ? shortDate : shortDateYear).format(date)
 }
 
 export function greeting(): string {

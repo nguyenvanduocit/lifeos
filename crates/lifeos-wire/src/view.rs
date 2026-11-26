@@ -108,6 +108,8 @@ pub struct TasksView {
     pub today: Vec<DocSummary>,
     /// Due or scheduled in the next 7 days.
     pub upcoming: Vec<DocSummary>,
+    /// The earlier of due and scheduled is more than 7 days ahead.
+    pub later: Vec<DocSummary>,
     /// Open, with neither a due nor a scheduled date.
     pub anytime: Vec<DocSummary>,
     pub done_today: Vec<DocSummary>,

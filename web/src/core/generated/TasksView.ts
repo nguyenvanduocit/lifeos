@@ -11,6 +11,10 @@ today: Array<DocSummary>,
  */
 upcoming: Array<DocSummary>, 
 /**
+ * The earlier of due and scheduled is more than 7 days ahead.
+ */
+later: Array<DocSummary>, 
+/**
  * Open, with neither a due nor a scheduled date.
  */
 anytime: Array<DocSummary>, done_today: Array<DocSummary>, };

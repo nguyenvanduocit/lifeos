@@ -221,6 +221,11 @@ fn views_survive_json() {
     let json = serde_json::to_string(&doc).unwrap();
     assert_eq!(serde_json::from_str::<DocSummary>(&json).unwrap(), doc);
     assert!(json.contains("\"kind\":\"task\""), "{json}");
+
+    let tasks = TasksView { overdue: vec![], today: vec![], upcoming: vec![], later: vec![doc], anytime: vec![], done_today: vec![] };
+    let json = serde_json::to_string(&tasks).unwrap();
+    assert_eq!(serde_json::from_str::<TasksView>(&json).unwrap(), tasks);
+    assert!(json.contains("\"later\":[{"), "{json}");
 }
 
 #[test]

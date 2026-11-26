@@ -168,6 +168,7 @@ impl Life {
                 "(due IS NULL OR due > '{d}') AND (scheduled IS NULL OR scheduled > '{d}')
                  AND COALESCE(MIN(due, scheduled), due, scheduled) BETWEEN '{d}' AND '{week}'"
             ))?,
+            later: open(format!("COALESCE(MIN(due, scheduled), due, scheduled) > '{week}'"))?,
             anytime: open("due IS NULL AND scheduled IS NULL".into())?,
             done_today: self.docs_where(Kind::Task, &format!("status = 'done' AND completed = '{d}'"), "title")?,
         })
@@ -189,6 +190,10 @@ mod tests {
         .unwrap()
     }
 
+    fn titles(l: &[DocSummary]) -> Vec<String> {
+        l.iter().map(|t| t.title.clone()).collect()
+    }
+
     #[test]
     fn tasks_fall_into_the_right_buckets() {
         let (_dir, life) = life();
@@ -198,12 +203,60 @@ mod tests {
         add(&life, "Dời từ hôm qua", None, Some("2026-11-24"));
         add(&life, "Tuần này", None, Some("2026-11-28"));
         add(&life, "Lúc nào cũng được", None, None);
+        add(&life, "Renew passport", Some("2026-12-25"), None);
+        add(&life, "Plan the trip", None, Some("2027-01-10"));
         let v = life.tasks_view(d("2026-11-25")).unwrap();
-        let titles = |l: &[DocSummary]| l.iter().map(|t| t.title.clone()).collect::<Vec<_>>();
+        assert_eq!(titles(&v.later), ["Renew passport", "Plan the trip"]);
         assert_eq!(titles(&v.overdue), ["Quá hạn"]);
-        assert_eq!(titles(&v.today).len(), 3);
+        assert_eq!(titles(&v.today), ["Dời từ hôm qua", "Hạn hôm nay", "Định làm hôm nay"]);
         assert_eq!(titles(&v.upcoming), ["Tuần này"]);
         assert_eq!(titles(&v.anytime), ["Lúc nào cũng được"]);
+        assert!(v.done_today.is_empty());
+    }
+
+    #[test]
+    fn the_week_ends_seven_days_ahead_and_later_starts_on_the_eighth() {
+        let (_dir, life) = life();
+        add(&life, "Due day 7", Some("2026-12-02"), None);
+        add(&life, "Planned day 7", None, Some("2026-12-02"));
+        add(&life, "Due day 8", Some("2026-12-03"), None);
+        add(&life, "Planned day 8", None, Some("2026-12-03"));
+        // The earlier of the two dates decides.
+        add(&life, "Planned day 7, due day 8", Some("2026-12-03"), Some("2026-12-02"));
+        add(&life, "Planned day 8, due day 30", Some("2026-12-25"), Some("2026-12-03"));
+        let v = life.tasks_view(d("2026-11-25")).unwrap();
+        assert_eq!(titles(&v.upcoming), ["Due day 7", "Planned day 7", "Planned day 7, due day 8"]);
+        assert_eq!(titles(&v.later), ["Due day 8", "Planned day 8", "Planned day 8, due day 30"]);
+    }
+
+    #[test]
+    fn a_task_planned_by_today_with_a_far_deadline_stays_in_today() {
+        let (_dir, life) = life();
+        add(&life, "Start the visa file", Some("2026-12-25"), Some("2026-11-25"));
+        add(&life, "Carried over", Some("2026-12-25"), Some("2026-11-20"));
+        let v = life.tasks_view(d("2026-11-25")).unwrap();
+        assert_eq!(titles(&v.today), ["Carried over", "Start the visa file"]);
+        assert!(v.upcoming.is_empty() && v.later.is_empty());
+    }
+
+    #[test]
+    fn every_open_task_is_in_exactly_one_bucket() {
+        let (_dir, life) = life();
+        // Each pair of: no date, last week, yesterday, the day, tomorrow, day 7, day 8, next year.
+        let days = [None, Some("2026-11-18"), Some("2026-11-24"), Some("2026-11-25"), Some("2026-11-26"), Some("2026-12-02"), Some("2026-12-03"), Some("2027-11-25")];
+        let mut ids = Vec::new();
+        for due in days {
+            for scheduled in days {
+                ids.push(add(&life, &format!("Task {}", ids.len()), due, scheduled).id);
+            }
+        }
+        let v = life.tasks_view(d("2026-11-25")).unwrap();
+        let buckets = [("overdue", &v.overdue), ("today", &v.today), ("upcoming", &v.upcoming), ("later", &v.later), ("anytime", &v.anytime)];
+        for id in &ids {
+            let found: Vec<&str> = buckets.iter().filter(|(_, tasks)| tasks.iter().any(|t| &t.id == id)).map(|(name, _)| *name).collect();
+            assert_eq!(found.len(), 1, "{id} is in {found:?}");
+        }
+        assert_eq!(buckets.iter().map(|(_, tasks)| tasks.len()).sum::<usize>(), ids.len());
     }
 
     #[test]

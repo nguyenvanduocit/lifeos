@@ -77,6 +77,7 @@ const week = computed(() => {
     return { iso, short: new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(day).slice(0, 2), n: day.getDate() }
   })
 })
+// `later` is left out: it starts 8 days ahead, past the last day of this week.
 const allOpen = computed(() => (d.value ? [...d.value.tasks.overdue, ...d.value.tasks.today, ...d.value.tasks.upcoming] : []))
 const picked = ref<string | null>(null)
 const pickedDay = computed(() => picked.value ?? today.value)
@@ -124,7 +125,7 @@ const taskCols = computed(() => [
           <span class="grid size-10 place-items-center rounded-xl bg-panel2"><Check class="size-5 text-ink2" /></span>
           <div class="min-w-0 flex-1">
             <p class="font-medium">Nothing due today</p>
-            <p class="text-[13.5px] text-ink2">{{ d.tasks.upcoming.length }} coming this week · {{ d.tasks.anytime.length }} without a date</p>
+            <p class="text-[13.5px] text-ink2">{{ d.tasks.upcoming.length }} coming this week · {{ d.tasks.later.length }} later · {{ d.tasks.anytime.length }} without a date</p>
           </div>
         </div>
       </Panel>

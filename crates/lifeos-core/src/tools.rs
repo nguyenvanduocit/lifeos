@@ -313,7 +313,7 @@ tools! {
         "List tasks, soonest date first, then priority.",
         |life, i| life.list_tasks(&i);
     read "tasks_view": Day => TasksView,
-        "Open tasks of a day in buckets: overdue, today (due or planned), the next 7 days, anytime; plus what was done that day.",
+        "Open tasks of a day in buckets: overdue, today (due or planned), upcoming (the next 7 days), later (dated after them), anytime (no date); plus what was done that day.",
         |life, i| life.tasks_view(on(i.date));
     write "add_task": AddTask => DocSummary,
         "Create a task (tasks/<id>.md). Use `scheduled` for the day the user plans to do it and `due` for a real deadline. Link it to a goal when it clearly serves one.",
