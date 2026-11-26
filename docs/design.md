@@ -9,7 +9,8 @@ designed, neither is an afterthought.
 ## Principles
 
 1. **Lists are rows, not cards.** One container per list, a light head row with an icon and a word per column, rows
-   divided by hairlines. Panels hold summaries of different kinds, or a detail.
+   divided by hairlines. A list with a single column (a note list) has no head row. Panels hold summaries of different
+   kinds, or a detail.
 2. **Every number carries its frame.** A value comes with its target, its period or a comparison:
    "0/5 tasks done today · 2 late", "₫14.5M spent this month · 55% of budgets", "+2 vs last week". A bare number is a
    bug.
@@ -76,7 +77,16 @@ Views and filters live in the address (`?view=`, `?goal=`, `?peek=`).
   page"), below 64rem it goes to the page.
 - **Detail**: breadcrumb (Area › item), the title, then two columns: the body (notes, related lists, Ask chips) and a
   sticky "Details" card (`PropertyList`, rows shown only when they have a value).
-- **Reader** (journal, notes, reviews): a 68ch column, 16px/1.7.
+- **List + reader** (Notes): the page fills the canvas instead of the 1240px column (the route's `meta.fill`). Two
+  panes divided by a hairline, each scrolling on its own: the list (340px; 300px below a 64rem page: widths chosen
+  for this page, no outside source) with the search field and `Segmented` at its top and two-line rows (title; tags,
+  date or the match), and the reader with a top bar (kind, Ask chips, "Open page") over a Reader column. The open row
+  (`?peek=`, else the first) has a `--panel2` fill and a 2px ink bar. Page widgets sit above the panes, which never
+  get less than 324px (the list's two bars and four rows); when widgets leave less, the page scrolls. Below a 48rem
+  page the list is the page and a row opens `/doc/:id`. After Apple Notes, Bear and UpNote.
+- **Reader** (notes, reviews: the Notes reader and `/doc/:id`): about 78 characters a line (56ch in Geist, 594px),
+  16px/1.7, centred in its pane. The journal day still has the earlier 68ch column, which is about 96 characters a
+  line in Geist.
 
 ## Components (web/src/components/ds)
 

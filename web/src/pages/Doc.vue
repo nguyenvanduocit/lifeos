@@ -6,7 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { CalendarClock, ChevronRight, FileText, Sparkles, Tag } from '@lucide/vue'
 import { useRead } from '../data'
 import { docLink } from '../links'
-import { longDay } from '../format'
+import { longDay, wordCount } from '../format'
 import AskChip from '../components/AskChip.vue'
 import LoadState from '../components/LoadState.vue'
 import Markdown from '../components/Markdown.vue'
@@ -34,7 +34,7 @@ const parent = computed(() => {
 })
 const KIND: Record<string, string> = { journal: 'Journal entry', note: 'Note', review: 'Review', routine: 'Routine' }
 const day = computed(() => (/^\d{4}-\d{2}-\d{2}/.test(data.value?.summary.id ?? props.id) ? (data.value?.summary.id ?? props.id).slice(0, 10) : ''))
-const words = computed(() => (data.value?.body.trim() ? data.value.body.trim().split(/\s+/).length : 0))
+const words = computed(() => wordCount(data.value?.body ?? ''))
 const rows = computed(() => {
   const s = data.value?.summary
   if (!s) return []
@@ -75,7 +75,7 @@ const rows = computed(() => {
         </div>
       </div>
       <article class="order-1 min-w-0">
-        <Markdown v-if="data.body.trim()" class="max-w-[72ch] text-[15px] leading-relaxed wrap-anywhere" :source="data.body" />
+        <Markdown v-if="data.body.trim()" class="reader wrap-anywhere" :source="data.body" />
         <p v-else class="rounded-xl border border-dashed border-line2 px-4 py-8 text-center text-[14px] text-ink3">This document is empty.</p>
       </article>
     </div>

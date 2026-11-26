@@ -14,6 +14,7 @@ Open the Vite development server at `http://localhost:5173`. Use a test vault an
 make test                           # Rust tests, Wasm build, and Vue type check
 make web                            # production frontend build
 cargo test -p lifeos-web --test link # WebTransport integration test
+(cd web && npm run verify:notes)     # Notes page in headless Chromium on made-up notes; once: PLAYWRIGHT_BROWSERS_PATH=0 npx playwright-core install chromium-headless-shell
 ```
 
 If you change Rust wire types or tool inputs, run `make gen` and commit the generated TypeScript with the Rust changes. In your pull request, describe the behavior that changed and list the checks you ran.

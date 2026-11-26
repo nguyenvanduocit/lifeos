@@ -8,22 +8,29 @@ import type { Actor } from '../src/core/generated/Actor'
 import type { AgentStanding } from '../src/core/generated/AgentStanding'
 import type { AgentView } from '../src/core/generated/AgentView'
 import type { Card } from '../src/core/generated/Card'
+import type { CardContext } from '../src/core/generated/CardContext'
+import type { CardTelemetry } from '../src/core/generated/CardTelemetry'
 import type { Delivery } from '../src/core/generated/Delivery'
 import type { EventDelta } from '../src/core/generated/EventDelta'
 import type { EventKind } from '../src/core/generated/EventKind'
 import type { EventRead } from '../src/core/generated/EventRead'
+import type { Image } from '../src/core/generated/Image'
+import type { ImageRef } from '../src/core/generated/ImageRef'
+import type { ImageType } from '../src/core/generated/ImageType'
 import type { ReadTool, ReadTools } from '../src/core/generated/tools'
 import type { TurnMark } from '../src/core/generated/TurnMark'
+import type { CustomWidget } from '../src/core/generated/CustomWidget'
+import { addNote, notesRead } from './notesData'
+import { flag } from './flags'
 
-export type { AgentView, Delivery, EventDelta, EventRead, ReadTool, ReadTools }
+export type { AgentView, CardContext, CardTelemetry, Delivery, EventDelta, EventRead, Image, ImageRef, ImageType, ReadTool, ReadTools, TurnMark }
 export const ASSISTANT = 'assistant'
 export type WatchReply = { Changed: number } | { Event: EventRead } | { Delta: EventDelta } | { Agent: AgentView }
 export const linkState = shallowReactive({ status: 'open' as 'connecting' | 'open' | 'down', error: '' })
 export const revision = ref(0)
 
-const params = new URLSearchParams(location.search)
-const idle = params.get('as') === 'idle'
-const still = params.get('still') === '1'
+const idle = flag('as') === 'idle'
+const still = flag('still') === '1'
 const calls: unknown[] = []
 ;(window as unknown as { calls: unknown[] }).calls = calls
 
@@ -78,7 +85,7 @@ add(tool(A, t0 + 7000, 'money_month', 'spending this month', 'lifeos', 'complete
 add(ev(A, 'message', t0 + 9000, { text: "Here is today:\n\n- **Renew passport** (due today)\n- **Send invoice to Lan** (due today)\n- Habits: *Run* is still open; you already read today.\n\nYou have spent 18.4M of your 25M budget this month. I could not read yesterday's journal: there is no entry for it." }))
 add(ev(A, 'stop', t0 + 10000, {
   status: 'end_turn',
-  activity: { turn_end: { ms: 10_400, turn: { touched: [{ group: 'lifeos', name: 'list_tasks', summary: 'read tasks', count: 1 }, { group: 'lifeos', name: 'habits', summary: 'read habits', count: 1 }, { group: 'lifeos', name: 'money_month', summary: 'read money', count: 1 }], failures: [{ event_id: 104, kind: 'failed', name: 'read_journal', summary: 'no journal entry for 2026-11-24' }] } } },
+  activity: { turn_end: { ms: 10_400, turn: { touched: [{ group: 'lifeos', name: 'list_tasks', summary: 'read tasks', count: 1 }, { group: 'lifeos', name: 'habits', summary: 'read habits', count: 1 }, { group: 'lifeos', name: 'money_month', summary: 'read money', count: 1 }], failures: [{ event_id: 104, kind: 'failed', name: 'read_journal', summary: 'no journal entry for 2026-11-24' }], partial: false } } },
 }))
 const t1 = now - 30 * MIN
 add(ev(A, 'system', t1, { status: 'new_session', by: OWNER, title: 'Started over', text: 'The next message opens a new session, which reads a recap of this conversation.', activity: 'started_over' }))
@@ -86,7 +93,7 @@ add(ev(A, 'prompt', t1 + MIN, { by: ROUTINE, status: 'delivered', title: 'Write 
 add(tool(A, t1 + MIN + 3000, 'dashboard', 'the overview', 'lifeos', 'completed', {}, '{"tasks_due":2,"habits_open":1}'))
 add(tool(A, t1 + MIN + 4000, 'save_review', 'saved the brief', 'lifeos', 'completed', { kind: 'brief' }, 'saved reviews/2026-11-25-brief.md'))
 add(ev(A, 'message', t1 + MIN + 6000, { text: 'The brief for today is saved.' }))
-add(ev(A, 'stop', t1 + MIN + 7000, { status: 'end_turn', activity: { turn_end: { ms: 6_900, turn: { touched: [{ group: 'lifeos', name: 'dashboard', summary: 'read the overview', count: 1 }, { group: 'lifeos', name: 'save_review', summary: 'saved the brief', count: 1 }], failures: [] } } } }))
+add(ev(A, 'stop', t1 + MIN + 7000, { status: 'end_turn', activity: { turn_end: { ms: 6_900, turn: { touched: [{ group: 'lifeos', name: 'dashboard', summary: 'read the overview', count: 1 }, { group: 'lifeos', name: 'save_review', summary: 'saved the brief', count: 1 }], failures: [], partial: false } } } }))
 const t2 = now - 12 * MIN
 add(ev(A, 'prompt', t2, { by: OWNER, status: 'delivered', text: 'Ask Coach to plan three runs for this week.' }))
 add(ev(A, 'tool', t2 + 3000, { tool_name: 'mcp__lifeos__message_agent', ms: 300, status: 'completed', activity: { sent: { to: 'coach', kind: 'request', label: 'Plan three runs for this week around the owner’s calendar', text: 'Plan three runs for this week. The owner runs in the morning and has meetings Tuesday and Thursday until 10.' } } }))
@@ -199,9 +206,29 @@ const QUESTIONS = [
   { id: 5, asker: 'coach', asker_name: 'Coach', text: 'Five runs or three this week?', status: 'answered', answer: 'Three', why: '', decided_by: OWNER, overturned: 'Five', created: iso(now - 3 * 60 * MIN), decided: iso(now - 2 * 60 * MIN) },
   { id: 4, asker: 'ledger', asker_name: 'Ledger', text: 'Which budget should the gym fee go under?', status: 'open', answer: '', why: '', decided_by: null, overturned: '', created: iso(now - 30_000), decided: '' },
 ]
+// Custom widgets on the Notes page, above its panes: ?widgets=1 is one small widget, ?widgets=<n> is n widgets of the
+// size a new widget gets (24 columns by 8 rows, crates/lifeos-core/src/life/widgets.rs:510), ?widgets=tall is one of 40 rows.
+const widget = (id: number, title: string, grid: CustomWidget['grid']): CustomWidget => ({ id, page: '/notes', slot: 'page', title, markdown: '- A history of small gardens\n- Something on sleep', agent: ASSISTANT, content: null, prompt: 'Keep my reading queue here.', version: 1, grid })
+const widgetsFlag = flag('widgets') ?? ''
+const WIDGETS: CustomWidget[] = widgetsFlag === 'tall'
+  ? [widget(1, 'Reading queue', { x: 0, y: 0, w: 24, h: 40 })]
+  : widgetsFlag === '1'
+    ? [widget(1, 'Reading queue', { x: 0, y: 0, w: 12, h: 6 })]
+    : Array.from({ length: Number(widgetsFlag) || 0 }, (_, i) => widget(i + 1, `Reading queue ${i + 1}`, { x: (i % 2) * 24, y: Math.floor(i / 2) * 8, w: 24, h: 8 }))
+// What a check may do to the data behind the page's back, as an agent would: a new note on top, and the server's word
+// that data changed.
+;(window as unknown as { verify: unknown }).verify = {
+  addNote(title: string) {
+    addNote(title)
+    revision.value++
+  },
+}
 const wait = (ms = 150) => new Promise((r) => setTimeout(r, ms))
-export async function read<T extends ReadTool>(tool: T, _input: ReadTools[T]['input']): Promise<ReadTools[T]['output']> {
+export async function read<T extends ReadTool>(tool: T, input: ReadTools[T]['input']): Promise<ReadTools[T]['output']> {
   await wait()
+  const doc = notesRead(tool, input)
+  if (doc !== undefined) return doc as ReadTools[T]['output']
+  if (tool === 'list_widgets') return ((input as { page?: string }).page === '/notes' ? WIDGETS : []) as ReadTools[T]['output']
   if (tool === 'list_crew') return CREW as ReadTools[T]['output']
   if (tool === 'list_memories') return MEMORIES as ReadTools[T]['output']
   if (tool === 'list_questions') return QUESTIONS as ReadTools[T]['output']
@@ -217,8 +244,18 @@ export async function events(id: string, before?: number): Promise<EventRead[]> 
   await wait()
   return structuredClone(id === A ? assistantEvents : id === 'coach' ? coachEvents : [])
 }
-export async function say(id: string, text: string, delivery: Delivery): Promise<void> {
-  calls.push(['say', id, text, delivery])
+export async function context(id: string): Promise<CardContext> {
+  calls.push(['context', id])
+  await wait()
+  return { card: id, given: null, loaded: null, context: null, context_error: '' }
+}
+export async function telemetry(id: string): Promise<CardTelemetry> {
+  calls.push(['telemetry', id])
+  await wait()
+  return { requests: 0, errors: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, cost_usd: 0, latency_p50_ms: 0, latency_p95_ms: 0, ttft_p50_ms: 0, models: [], tools: [], recent_errors: [], first_at_ms: 0, last_at_ms: 0 }
+}
+export async function say(id: string, text: string, images: ImageRef[], delivery: Delivery): Promise<void> {
+  calls.push(['say', id, text, images, delivery])
   await wait(400)
   const list = id === A ? assistantEvents : coachEvents
   const e = ev(id, 'prompt', Date.now(), { by: OWNER, status: views[id]?.card.status === 'working' ? 'queued' : 'delivered', text })
@@ -234,8 +271,19 @@ export async function interrupt(id: string): Promise<void> {
 export async function restart(id: string): Promise<void> {
   calls.push(['restart', id])
 }
-export async function draft(id: string, text: string): Promise<void> {
-  calls.push(['draft', id, text])
+export async function draft(id: string, text: string, images: ImageRef[]): Promise<void> {
+  calls.push(['draft', id, text, images])
+}
+const kept = new Map<string, Image>()
+export async function imagePut(id: string, image: Image): Promise<void> {
+  calls.push(['imagePut', id])
+  if (!kept.has(id)) kept.set(id, image)
+}
+export async function imageGet(id: string): Promise<Image> {
+  calls.push(['imageGet', id])
+  const image = kept.get(id)
+  if (!image) throw new Error(`verify: no image ${id}`)
+  return image
 }
 export async function blockPick(event: number, part: string, picked: string[]): Promise<void> {
   calls.push(['blockPick', event, part, picked])

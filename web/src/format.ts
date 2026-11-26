@@ -23,6 +23,12 @@ export function num(n: number): string {
   return number.format(n)
 }
 
+/** How many words a text has: a note's length, in the Notes reader and on its own page. */
+export function wordCount(text: string): number {
+  const t = text.trim()
+  return t ? t.split(/\s+/).length : 0
+}
+
 export function parseDay(day: string): Date {
   const [y, m, d] = day.split('-').map(Number)
   return new Date(y, m - 1, d)

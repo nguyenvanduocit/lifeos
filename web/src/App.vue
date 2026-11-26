@@ -135,8 +135,8 @@ watch(desktopNav, (desktop) => {
         <ResizablePanelGroup direction="horizontal" auto-save-id="lifeos-shell" class="min-h-0 flex-1">
           <ResizablePanel id="shell-view" :order="1" class="flex" :min-size="35">
             <main ref="scrollArea" class="min-h-0 min-w-0 flex-1 overflow-y-auto">
-              <div class="mx-auto @container max-w-[1240px] px-4 py-6 sm:px-6 lg:px-9 lg:py-8">
-                <WidgetSlot v-if="pagePath !== '/'" class="mb-5" />
+              <div class="@container" :class="route.meta.fill ? 'flex h-full min-h-0 flex-col' : 'mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-9 lg:py-8'">
+                <WidgetSlot v-if="pagePath !== '/'" :class="route.meta.fill ? 'shrink-0 border-b border-line px-4 py-4 sm:px-6 lg:px-9' : 'mb-5'" />
                 <RouterView />
               </div>
             </main>

@@ -14,5 +14,6 @@
     "jsx": "preserve",
     "types": ["vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.vue"]
+  "include": ["src/**/*.ts", "src/**/*.vue", "verify/**/*.ts"],
+  "exclude": ["verify/vite.config.ts"]
 }

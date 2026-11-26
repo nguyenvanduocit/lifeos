@@ -254,6 +254,18 @@ body {
   overflow-wrap: anywhere;
   line-height: 1.6;
 }
+/* The Reader column (docs/design.md, "Reader"), for the Notes reader and /doc/:id: 16px/1.7 and at most 56ch. In Geist
+   56ch is 594px and a median of 79 characters a line on a long Vietnamese note (`npm run verify:notes` measures it);
+   68ch measured 96. The line height is a rule here, not a `leading-*` utility: `.prose-life` above is outside any
+   layer, so it beats utilities. */
+.reader {
+  max-width: 56ch;
+  font-size: 16px;
+}
+.reader.prose-life,
+.reader .prose-life {
+  line-height: 1.7;
+}
 .prose-life h1,
 .prose-life h2,
 .prose-life h3 {
