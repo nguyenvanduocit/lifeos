@@ -6,6 +6,7 @@
 // keeps the newest copy of each.
 import { reactive, ref } from 'vue'
 import * as link from './core/link'
+import { putAttachment } from './images'
 import { ASSISTANT, type AgentView, type Delivery, type EventRead, type ImageRef, type WatchReply } from './core/link'
 
 export { ASSISTANT }
@@ -38,6 +39,10 @@ export interface AgentState {
   draft: string
   /** The images in the box, put on the server already; the draft names them. */
   images: ImageRef[]
+  /** How many attachments are being put on the server for the box. */
+  putting: number
+  /** What could not be attached, in words for the owner. */
+  notAdded: string
   pending: Pending[]
 }
 
@@ -58,7 +63,7 @@ export function onOpen(hook: (open: boolean) => void): void {
 }
 
 function blank(id: string): AgentState {
-  return { id, view: null, events: [], loaded: false, older: false, error: '', draft: '', images: [], pending: [] }
+  return { id, view: null, events: [], loaded: false, older: false, error: '', draft: '', images: [], putting: 0, notAdded: '', pending: [] }
 }
 
 /** The agent `id` as the store holds it; its standing is read the first time it is asked for. */
@@ -200,6 +205,23 @@ export function setImages(id: string, images: ImageRef[]): void {
   agentState(id).images = images
   keepSoon(id)
 }
+/** Puts files on the server and adds them to the box's attachments, one by one as each is there. */
+export async function attach(id: string, files: readonly File[]): Promise<void> {
+  if (!files.length) return
+  const a = agentState(id)
+  a.putting += files.length
+  a.notAdded = ''
+  for (const file of files) {
+    try {
+      const attachment = await putAttachment(file)
+      setImages(id, [...a.images, attachment])
+    } catch (e) {
+      a.notAdded += `${a.notAdded ? ' ' : ''}Could not attach ${file.name}. ${messageOf(e)}`
+    } finally {
+      a.putting--
+    }
+  }
+}
 function keepSoon(id: string): void {
   typing[id] = true
   clearTimeout(timers[id])
@@ -301,6 +323,33 @@ export function talkTo(id: string): void {
 export function say(words: string, id = ASSISTANT): void {
   setDraft(id, words)
   talkTo(id)
+}
+
+/** What a drag carries that a drop on a page gives the agent: files, else links. */
+export function carriesAttachable(types: readonly string[]): boolean {
+  return types.includes('Files') || types.includes('text/uri-list')
+}
+/** The links a drop carries: text/uri-list's lines (those starting with # are comments), else text/plain when it is one
+ * address. */
+export function droppedLinks(data: DataTransfer): string[] {
+  const listed = data.getData('text/uri-list').split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))
+  if (listed.length) return listed
+  const plain = data.getData('text/plain').trim()
+  return /^https?:\/\/\S+$/.test(plain) ? [plain] : []
+}
+/** Files or links dropped on a page: the panel opens on the agent it talks to, with the files attached to its box and the
+ * links added to its words (the owner's message names them, as a link pasted in the box does). */
+export function attachDropped(data: DataTransfer): void {
+  const id = panel.agent
+  const files = Array.from(data.files)
+  const links = files.length ? [] : droppedLinks(data)
+  if (!files.length && !links.length) return
+  if (links.length) {
+    const words = agentState(id).draft.trimEnd()
+    setDraft(id, `${words ? `${words}\n` : ''}${links.join('\n')}\n`)
+  }
+  talkTo(id)
+  void attach(id, files)
 }
 
 /** Sends a message now (to the Assistant unless told otherwise), shown in the panel. */

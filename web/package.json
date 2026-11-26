@@ -8,6 +8,7 @@
     "typecheck": "vue-tsc --noEmit",
     "verify": "vite --config verify/vite.config.ts",
     "verify:notes": "node verify/notes.mjs",
+    "verify:drop": "node verify/drop.mjs",
     "verify:notes:contract": "node verify/contract.mjs"
   },
   "dependencies": {

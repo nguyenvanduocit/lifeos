@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, useId, watch } from 'vue';
-import { agentState, interrupt, messageOf, panel, restart, send, setDraft, setImages } from '../../assistant';
+import { agentState, attach as attachTo, interrupt, messageOf, panel, restart, send, setDraft, setImages } from '../../assistant';
 import { stop as stopAgent } from '../../core/link';
-import { fileName, imageUrl, isFile, putAttachment } from '../../images';
+import { fileName, imageUrl, isFile } from '../../images';
 import type { AgentStanding } from '../../core/generated/AgentStanding';
 import type { Ask } from '../../core/generated/Ask';
 import type { Card } from '../../core/generated/Card';
@@ -31,24 +31,9 @@ const draft = computed({ get: () => state.value.draft, set: (v: string) => setDr
 const images = computed({ get: () => state.value.images, set: (v) => setImages(props.card.id, v) });
 const unsent = computed(() => draft.value.trim() !== '' || images.value.length > 0);
 const picker = ref<HTMLInputElement>();
-const putting = ref(0);
-const notAdded = ref('');
-async function attach(files: readonly File[]) {
-  if (!files.length) return;
-  const card = props.card.id;
-  putting.value += files.length;
-  notAdded.value = '';
-  for (const file of files) {
-    try {
-      const attachment = await putAttachment(file);
-      setImages(card, [...agentState(card).images, attachment]);
-    } catch (e) {
-      notAdded.value += `${notAdded.value ? ' ' : ''}Could not attach ${file.name}. ${messageOf(e)}`;
-    } finally {
-      putting.value--;
-    }
-  }
-}
+const putting = computed(() => state.value.putting);
+const notAdded = computed(() => state.value.notAdded);
+const attach = (files: readonly File[]) => attachTo(props.card.id, files);
 function onPaste(e: ClipboardEvent) {
   const files = Array.from(e.clipboardData?.files ?? []);
   if (!files.length) return;

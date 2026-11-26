@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, provide, ref, watch } from 'vue'
 import { useEventListener, useIntervalFn, useMediaQuery } from '@vueuse/core'
-import { House, Inbox, ListChecks, Menu, Search, Sparkles, SquarePlus } from '@lucide/vue'
+import { House, Inbox, ListChecks, Menu, Paperclip, Search, Sparkles, SquarePlus } from '@lucide/vue'
 import { useRoute } from 'vue-router'
 import AppNavigation from './components/AppNavigation.vue'
 import CommandMenu from './components/CommandMenu.vue'
@@ -12,7 +12,7 @@ import AssistantPanel from './components/AssistantPanel.vue'
 import { Button } from './components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './components/ui/resizable'
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from './components/ui/sheet'
-import { onOpen, panelOpen } from './assistant'
+import { attachDropped, carriesAttachable, onOpen, panelOpen } from './assistant'
 import { linkState, revision } from './core/link'
 import { useAssistant } from './nav'
 import { useRead } from './data'
@@ -84,6 +84,56 @@ useEventListener(window, 'keydown', (e: KeyboardEvent) => {
   }
   afterG = e.key === 'g'
   if (afterG) chord = setTimeout(() => (afterG = false), 1000)
+})
+
+// Files or a link dropped anywhere go to the agent: the panel opens with them in its box (attachDropped). A place that
+// takes a drop itself (the Assistant's box, the Vault's import) prevents the event before it reaches the window, and keeps
+// it; a drag that started in the page is the page's; text, or a link, dragged into a field being typed in is the field's. The overlay shows while a drop here would be
+// taken, and lets every event through to what is under it.
+const dropping = ref(false)
+let dragDepth = 0
+// A drag that started in this page (a link, an image, selected text) is the page's own, not something brought to it.
+let fromPage = false
+const editable = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
+/** Whether this window takes the drop the event is part of. */
+function takes(e: DragEvent): boolean {
+  const types = Array.from(e.dataTransfer?.types ?? [])
+  if (fromPage || e.defaultPrevented || !carriesAttachable(types)) return false
+  return types.includes('Files') || !editable(e.target)
+}
+// Taken at the capture phase, so a target that stops the event still marks it; a drag its target cancels never starts
+// (no dragend comes), so the mark is cleared once the event is through, and on any mouseup (none comes during a drag).
+useEventListener(window, 'dragstart', (e: DragEvent) => {
+  fromPage = true
+  setTimeout(() => {
+    if (e.defaultPrevented) fromPage = false
+  })
+}, { capture: true })
+useEventListener(window, 'mouseup', () => (fromPage = false))
+useEventListener(window, 'dragenter', () => dragDepth++)
+useEventListener(window, 'dragleave', () => {
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (!dragDepth) dropping.value = false
+})
+useEventListener(window, 'dragover', (e: DragEvent) => {
+  dropping.value = takes(e)
+  if (!dropping.value) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+})
+useEventListener(window, 'drop', (e: DragEvent) => {
+  const mine = takes(e)
+  fromPage = false
+  dragDepth = 0
+  dropping.value = false
+  if (!mine || !e.dataTransfer) return
+  e.preventDefault()
+  attachDropped(e.dataTransfer)
+})
+useEventListener(window, 'dragend', () => {
+  fromPage = false
+  dragDepth = 0
+  dropping.value = false
 })
 
 const shortcuts = [
@@ -174,6 +224,14 @@ watch(desktopNav, (desktop) => {
     </div>
 
     <CommandMenu v-model:open="commands" />
+
+    <div v-if="dropping" class="pointer-events-none fixed inset-0 z-[70] grid place-items-center bg-black/25 p-4 backdrop-blur-[1px]" role="status" data-drop-overlay>
+      <div class="flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-line2 bg-panel px-8 py-6 text-center shadow-[var(--shadow-card)]">
+        <Paperclip class="size-6 text-ink2" aria-hidden="true" />
+        <span class="text-[15px] font-medium">Drop to attach</span>
+        <span class="text-[13px] text-ink2">The Assistant opens with it in your message.</span>
+      </div>
+    </div>
 
     <Sheet v-if="!assistantInline" :open="assistant.open.value" @update:open="(o: boolean) => (o ? assistant.show() : assistant.close())">
       <SheetContent side="bottom" hide-close overlay-class="bg-black/35" :aria-describedby="undefined"
