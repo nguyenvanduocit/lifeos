@@ -68,10 +68,16 @@ const OTHERS: DocFull[] = [
   doc('journal', '2026-11-20', '2026-11-20', [], '## 07:10\n\nWatered the garden before work. The lettuce is ready.'),
 ]
 
-const scenario = flag('scenario') ?? 'many'
-const notes = scenario === 'none' ? [] : scenario === 'one' ? [LONG] : scenario === 'long' ? [LONG, ...NOTES.filter((n) => n !== LONG).slice(0, 7)] : [...NOTES]
-const reviews = scenario === 'none' || scenario === 'one' ? [] : scenario === 'long' ? REVIEWS.slice(0, 2) : REVIEWS
-const all = [...notes, ...reviews, ...OTHERS]
+let notes: DocFull[] = []
+let reviews: DocFull[] = []
+let all: DocFull[] = []
+/** Fills the vault as `scenario` says. A tab does it once, from its address; contract.mjs before each page it renders. */
+export function useScenario(scenario: string): void {
+  notes = scenario === 'none' ? [] : scenario === 'one' ? [LONG] : scenario === 'long' ? [LONG, ...NOTES.filter((n) => n !== LONG).slice(0, 7)] : [...NOTES]
+  reviews = scenario === 'none' || scenario === 'one' ? [] : scenario === 'long' ? REVIEWS.slice(0, 2) : REVIEWS
+  all = [...notes, ...reviews, ...OTHERS]
+}
+useScenario(flag('scenario') ?? 'many')
 
 function find(id: string): DocFull {
   const bare = id.replace(/\.md$/, '')

@@ -1,18 +1,28 @@
 #!/usr/bin/env node
 // `npm run verify:notes`: the Notes page in a real headless Chromium, on made-up notes through the fake link
 // (notesData.ts, no server, no network). One line per assertion (✓/✗ name, what was measured, the limit); exit 1 when
-// any assertion fails, exit 2 when the check itself could not run (no browser, the page did not load).
+// any assertion fails, exit 2 when the check itself could not run (no browser, the page did not load, or the place it
+// runs in refused something it needs: one line says what).
 //
 // One-time setup (needs the network; the check itself runs offline afterwards):
 //   cd web && npm ci && PLAYWRIGHT_BROWSERS_PATH=0 npx playwright-core install chromium-headless-shell
 // The browser is kept inside web/node_modules/playwright-core/.local-browsers. A run writes nothing in the checkout:
-// Vite's cache and the browser's profile go to the system temp directory. NOTES_SHOTS=<dir> also saves screenshots there.
-import { createHash } from 'node:crypto'
+// the built page and the browser's profile go to the system temp directory. NOTES_SHOTS=<dir> also saves screenshots
+// there.
+//
+// It runs in Remit's check jail, as far as this script can see to it (remit dd1b3c11: crates/jail/src/sandbox_darwin.rs:32
+// `(deny default)`, crates/shipping/src/repochecks.rs:176-200 a command check gets no network rule, 22-29 its limits):
+// - no socket: the page is built once (Vite) and its files are handed to the browser by this process (`route`), and
+//   the browser is driven over a pipe. Nothing listens and nothing connects, loopback included.
+// - files: written only under os.tmpdir() (the jail's TMPDIR and HOME; the worktree's .git is read-only there).
+// - time: the jail ends a check after 5 minutes and any one process after 2 minutes of CPU; the last line of a run says
+//   what this run took.
+// Whether Chromium itself starts there is not known: the jail allows a program per-pid Mach services only
+// (/System/Library/Sandbox/Profiles/system.sb:18-19) and Chromium registers a named one for its child processes. If it
+// does not, this check says so and exits 2; verify:notes:contract (contract.mjs) is the check that needs no browser.
 import fs from 'node:fs'
-import net from 'node:net'
-import os from 'node:os'
 import path from 'node:path'
-import { verifyConfig, web } from './config.mjs'
+import { A_REVIEW, LONG_ID, LONG_STARTS, LONG_TITLE, NO_GARDEN, OTHER_NOTE, begin, check, fatal, finish, info, scratch, started, step, where, why } from './run.mjs'
 
 process.env.PLAYWRIGHT_BROWSERS_PATH = '0'
 const SETUP = 'cd web && npm ci && PLAYWRIGHT_BROWSERS_PATH=0 npx playwright-core install chromium-headless-shell'
@@ -52,54 +62,23 @@ const FLOOR = 2 * 48 + 4 * 57
 const PHONE_COLUMN = { min: 0.8 * PHONE.width, max: PHONE.width - 2 * 16 }
 // Boxes are compared within a pixel or two: sizes are rounded, and a 1px border may fall on either side.
 
-const LONG_TITLE = 'Sổ tay vườn rau sân thượng: một năm nhìn lại'
-const LONG_ID = 'so-tay-vuon-rau-san-thuong-mot-nam-nhin-lai'
-const LONG_STARTS = 'Ghi chú này gom lại'
-const OTHER_NOTE = 'Ý tưởng quà sinh nhật cho mẹ'
-const A_REVIEW = 'Weekly review, week 47'
-const NO_GARDEN = 'Running form cues'
 // The page's two panes, by the names it gives them.
 const LIST = 'main [aria-label="Notes list"]'
 const READER = 'main section[aria-label="Note"]'
 
-// Time limits, from what this machine (10 cores) measured. With little else running (load 16–31) a whole run takes
-// 33–51s and a cold Vite start 6s. Under other work (load 58–75) everything ran about 18 times slower (a type check:
-// 20s of CPU in 6m04s): a click took more than 8s and the first load of the page more than 120s. A limit that is too
-// short fails an assertion the page meets, so each has room; the whole run has a limit too, so it cannot hang.
+// Time limits, from what this machine (10 cores) measured while the page came from a Vite dev server. With little else
+// running (load 16–31) a whole run took 33–51s. Under other work (load 58–75) everything ran about 18 times slower (a
+// type check: 20s of CPU in 6m04s): a click took more than 8s. A limit that is too short fails an assertion the page
+// meets, so each has room; the whole run has a limit too, so it cannot hang.
 // - a click, or a wait for what it brings: nearly four times the 8s that was not enough.
 const ACT_MS = 30_000
-// - a page load after the first: three times a click's limit (chosen; no load after the first has exceeded 8s but one,
-//   on a cold cache).
+// - a page load: three times a click's limit (chosen; with the dev server no load after the first exceeded 8s but one).
 const LOAD_MS = 90_000
-// - the first load, when Vite also prepares its packages: 6s × 18 is about 2 minutes and 120s was exceeded, so 5.
-const WARM_MS = 300_000
-// - the whole run: 51s × 18 is about 15 minutes, doubled.
+// - the whole run: 51s × 18 is about 15 minutes, doubled. Remit's jail ends it after 5 minutes whatever this says.
 const RUN_MS = 30 * 60_000
 const shots = process.env.NOTES_SHOTS ? path.resolve(process.env.NOTES_SHOTS) : ''
 
-function fatal(message) {
-  console.error(`verify:notes could not run: ${message}`)
-  process.exit(2)
-}
-
-let failed = 0
-let passed = 0
-let doing = 'starting'
-setTimeout(() => fatal(`no end after ${RUN_MS / 60_000} minutes, while at: ${doing}`), RUN_MS).unref()
-/** Runs one assertion: `fn` returns { ok, measured, limit }; a throw (a control that is not there) fails it. */
-async function check(name, fn) {
-  doing = name
-  let r
-  try {
-    r = await fn()
-  } catch (err) {
-    r = { ok: false, measured: String(err?.message ?? err).split('\n')[0], limit: 'runs without error' }
-  }
-  if (r.ok) passed++
-  else failed++
-  console.log(`${r.ok ? '✓' : '✗'} ${name} — ${r.measured} (limit: ${r.limit})`)
-}
-const info = (text) => console.log(`· ${text}`)
+begin('verify:notes', RUN_MS)
 
 // ---- what runs inside the page -------------------------------------------------------------------------------------
 
@@ -222,43 +201,87 @@ function overflowInPage() {
 
 // ---- the run --------------------------------------------------------------------------------------------------------
 
-async function freePort() {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer()
-    s.once('error', reject)
-    s.listen(0, '127.0.0.1', () => {
-      const { port } = s.address()
-      s.close(() => resolve(port))
-    })
-  })
-}
+// The address the pages are opened at. Nothing listens there and the browser never connects to it: every request is
+// answered by `serve` below. An address on the machine itself, so the page is a secure context as on 127.0.0.1:7420.
+const ORIGIN = 'http://127.0.0.1:59407'
 
 let chromium
-let createServer
+let build
+let verifyConfig
+let web
 try {
   ;({ chromium } = await import('playwright-core'))
-  ;({ createServer } = await import('vite'))
+  ;({ build } = await import('vite'))
+  ;({ verifyConfig, web } = await import('./config.mjs'))
 } catch (err) {
-  fatal(`${err.message}\n  npm packages are missing. Set up once with: ${SETUP}`)
+  fatal(`npm packages are missing or could not be loaded (${why(err)}). Set up once with: ${SETUP}`)
 }
 
-const port = await freePort()
-const cacheDir = path.join(os.tmpdir(), `lifeos-verify-vite-${createHash('sha1').update(web).digest('hex').slice(0, 10)}`)
-let server
+// The page, built once: the app's index.html with the fake link (config.mjs), as the dev server of `npm run verify`
+// serves it at a page's own path.
+step('making a directory for the built page')
+const out = scratch('lifeos-verify-notes-')
+const site = path.join(out, 'site')
+step('building the page')
 try {
-  server = await createServer({ ...verifyConfig(port), configFile: false, cacheDir, logLevel: 'error', clearScreen: false })
-  await server.listen()
+  await build({
+    ...verifyConfig(),
+    configFile: false,
+    cacheDir: path.join(out, 'cache'),
+    logLevel: 'error',
+    clearScreen: false,
+    build: { outDir: site, emptyOutDir: true, target: 'es2022', minify: false, reportCompressedSize: false },
+  })
 } catch (err) {
-  fatal(`Vite did not start: ${err.message}`)
+  fatal(`Vite could not build the page into ${site}: ${why(err)}`)
 }
-const origin = `http://127.0.0.1:${port}`
+const built = Date.now()
+step('opening the Notes page')
 
+const TYPES = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf',
+}
+const elsewhere = []
+/** Answers a request of the page from the built files. A path that is no file gets the app's page, as Vite's dev server
+ * answers (the app's own requests to /api/… get it too, there and here). A request to any other address is refused. */
+async function serve(route) {
+  const url = new URL(route.request().url())
+  try {
+    if (url.origin !== ORIGIN) {
+      elsewhere.push(url.origin)
+      return await route.abort('blockedbyclient')
+    }
+    let file = path.join(site, decodeURIComponent(url.pathname))
+    if (!file.startsWith(site + path.sep) || !fs.statSync(file, { throwIfNoEntry: false })?.isFile()) file = path.join(site, 'index.html')
+    await route.fulfill({ status: 200, contentType: TYPES[path.extname(file)] ?? 'application/octet-stream', body: fs.readFileSync(file) })
+  } catch (err) {
+    // The tab closed while its request was being answered: nothing to answer. Anything else is the check's own fault.
+    if (!/closed|Route is already handled/i.test(String(err?.message))) throw err
+  }
+}
+
+step('starting the browser')
 let browser
+let closing = false
+// How much processor time each of the browser's processes has used, the most seen per process: Remit's jail ends a
+// process at 2 minutes.
+const cpu = new Map()
 try {
   browser = await chromium.launch({ headless: true })
+  browser.on('disconnected', () => { if (!closing) fatal(`the browser ended on its own, while at: ${where()}: ${why(new Error('browser closed'))}`) })
+  const session = await browser.newBrowserCDPSession()
+  const sample = async () => {
+    const { processInfo } = await session.send('SystemInfo.getProcessInfo')
+    for (const p of processInfo) cpu.set(`${p.type} ${p.id}`, Math.max(cpu.get(`${p.type} ${p.id}`) ?? 0, p.cpuTime))
+  }
+  setInterval(() => void sample().catch(() => {}), 1000).unref()
 } catch (err) {
-  await server.close()
-  fatal(`no headless Chromium (${String(err.message).split('\n')[0]})\n  Set up once with: ${SETUP}`)
+  fatal(`headless Chromium did not start (browser launch refused or no browser: ${why(err)}). Set up once with: ${SETUP}`)
+}
+async function end() {
+  closing = true
+  await browser.close()
 }
 
 const pageErrors = []
@@ -266,13 +289,14 @@ const consoleErrors = []
 /** A fresh tab (its own storage, so the Assistant column has its first width) at `size`, opened at `at` with the
  * scenario's notes and the Assistant at rest. */
 async function openAt(size, at, scenario, { timeout = ACT_MS, dark = false } = {}) {
-  const context = await browser.newContext({ viewport: size, deviceScaleFactor: size.width < 600 ? 2 : 1, hasTouch: size.width < 600, locale: 'en-US', timezoneId: 'Asia/Ho_Chi_Minh', colorScheme: dark ? 'dark' : 'light' })
+  const context = await browser.newContext({ viewport: size, deviceScaleFactor: size.width < 600 ? 2 : 1, hasTouch: size.width < 600, locale: 'en-US', timezoneId: 'Asia/Ho_Chi_Minh', colorScheme: dark ? 'dark' : 'light', serviceWorkers: 'block' })
+  await context.route('**/*', serve)
   context.setDefaultTimeout(timeout)
   context.setDefaultNavigationTimeout(Math.max(timeout, LOAD_MS))
   const page = await context.newPage()
   page.on('pageerror', (e) => pageErrors.push(String(e.message)))
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()) })
-  await page.goto(`${origin}${at}${at.includes('?') ? '&' : '?'}scenario=${scenario}&as=idle`)
+  await page.goto(`${ORIGIN}${at}${at.includes('?') ? '&' : '?'}scenario=${scenario}&as=idle`)
   await page.locator('main h1').first().waitFor({ state: 'attached', timeout: Math.max(timeout, LOAD_MS) })
   await page.evaluate(() => document.fonts.ready)
   return page
@@ -288,6 +312,9 @@ async function ready(page, timeout = LOAD_MS) {
   await main.getByText(LONG_TITLE).or(main.getByText(A_REVIEW)).or(main.getByText('No notes yet.')).first().waitFor({ timeout })
   await page.evaluate(() => document.fonts.ready)
 }
+/** A step on the way to a screenshot or the next assertion. A page that lacks what the step waits for (the page before
+ * this design has no reader) is not a check that cannot run: the assertions around it say what is missing. */
+const reach = (step) => step.catch(() => {})
 const longBody = (page) => page.locator('p', { hasText: LONG_STARTS }).first()
 const listOf = (page) => page.locator(LIST)
 const row = (page, title) => listOf(page).locator('li', { hasText: title }).first()
@@ -364,18 +391,6 @@ const noHeads = async (page) => {
 }
 
 try {
-  // The first load of a cold cache makes Vite prepare the packages (slow, and it may reload the page): let that happen
-  // before measuring.
-  try {
-    const warm = await open(WIDE, 'many', '', { timeout: WARM_MS })
-    await warm.waitForLoadState('networkidle')
-    await server.waitForRequestsIdle()
-    await ready(warm, WARM_MS)
-    await warm.context().close()
-  } catch (err) {
-    throw new Error(`the Notes page did not load on the verify harness: ${String(err.message).split('\n')[0]}${pageErrors.length ? `\n  page errors: ${pageErrors.join(' | ')}` : ''}`)
-  }
-
   const words = fs.readFileSync(path.join(web, 'verify/longNote.md'), 'utf8').trim().split(/\s+/).length
   await check('fixture: the long note is long', () => ({ ok: words >= MIN_WORDS, measured: `${words} words`, limit: `≥ ${MIN_WORDS} words` }))
 
@@ -423,8 +438,8 @@ try {
         return { ok: peek === 'note_packing-list-for-the-ha-giang-loop' && p.history === before && p.current.length === 1 && p.current[0] === third, measured: `?peek=${peek}; history ${before} → ${p.history}; marked row ${JSON.stringify(p.current)}`, limit: '?peek=note_<id>, history length unchanged, that row marked' }
       })
       await page.goto(page.url().replace(/&?peek=[^&]*/, ''))
-      await ready(page)
-      await shown(page, OTHER_NOTE)
+      await reach(ready(page))
+      await reach(shown(page, OTHER_NOTE))
       await shot(page, '1568x900-many')
     }
     await page.context().close()
@@ -548,19 +563,19 @@ try {
 
     if (shots) {
       page = await open(WIDE, 'many', 'q=garden')
-      await listOf(page).getByText('Buy seeds for the garden').first().waitFor()
-      await shown(page, LONG_TITLE)
+      await reach(listOf(page).getByText('Buy seeds for the garden').first().waitFor())
+      await reach(shown(page, LONG_TITLE))
       await shot(page, '1568x900-search')
       await page.context().close()
       page = await open(WIDE, 'many', 'view=reviews')
-      await shown(page, 'Morning brief, Wednesday')
+      await reach(shown(page, 'Morning brief, Wednesday'))
       await shot(page, '1568x900-reviews')
       await page.context().close()
       page = await open(WIDE, 'none')
       await shot(page, '1568x900-empty')
       await page.context().close()
       page = await open(WIDE, 'long', '', { dark: true })
-      await openLong(page)
+      await reach(openLong(page))
       await shot(page, '1568x900-long-open-dark')
       await page.context().close()
       page = await open(PHONE, 'none')
@@ -730,18 +745,21 @@ try {
     await again.context().close()
   }
 } catch (err) {
-  await browser.close()
-  await server.close()
-  fatal(err.message)
+  closing = true
+  await browser.close().catch(() => {})
+  fatal(`${why(err)}, while at: ${where()}`)
 }
 
-await browser.close()
-await server.close()
+await end()
 // An error on a page is a failure, whatever the assertions saw: one it threw, or one it logged with console.error.
 // None is ignored: a run of the whole check on the harness logs no console error at all (measured at b5f4953).
 await check('the pages threw and logged no errors', () => {
   const seen = [...new Set([...pageErrors.map((e) => `thrown: ${e}`), ...consoleErrors.map((e) => `console.error: ${e}`)])]
   return { ok: seen.length === 0, measured: seen.length ? `${pageErrors.length} thrown, ${consoleErrors.length} logged: ${seen.join(' | ')}` : 'none thrown, none logged', limit: '0 uncaught errors, 0 console errors' }
 })
-console.log(`${passed} passed, ${failed} failed${shots ? `; screenshots in ${shots}` : ''}`)
-process.exit(failed ? 1 : 0)
+const secs = (ms) => Math.round(ms / 1000)
+const busiest = [...cpu.entries()].sort((a, b) => b[1] - a[1])[0]
+const own = process.cpuUsage()
+info(`took ${secs(Date.now() - started)}s (building the page ${secs(built - started)}s); processor time: this process ${secs((own.user + own.system) / 1000)}s, the busiest of the browser's ${cpu.size} processes ${busiest ? `${Math.round(busiest[1])}s (${busiest[0].split(' ')[0]})` : 'not measured'}; ${elsewhere.length} requests to other addresses, all refused${elsewhere.length ? ` (${[...new Set(elsewhere)].join(', ')})` : ''}`)
+if (shots) info(`screenshots in ${shots}`)
+finish()

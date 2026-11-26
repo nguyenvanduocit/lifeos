@@ -19,12 +19,12 @@ const swapLink = {
   },
 }
 
-/** `port` 5297 for a person at a browser; a check passes a free one. */
-export function verifyConfig(port = 5297) {
+export function verifyConfig() {
   return {
     root: web,
     resolve: { alias: { '@': path.join(web, 'src') } },
     plugins: [swapLink, vue(), tailwindcss()],
-    server: { port, strictPort: true, host: '127.0.0.1' },
+    // Where `npm run verify` serves a person at a browser. The checks (notes.mjs, contract.mjs) start no server.
+    server: { port: 5297, strictPort: true, host: '127.0.0.1' },
   }
 }

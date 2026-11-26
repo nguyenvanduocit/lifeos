@@ -224,15 +224,22 @@ const WIDGETS: CustomWidget[] = widgetsFlag === 'tall'
   },
 }
 const wait = (ms = 150) => new Promise((r) => setTimeout(r, ms))
+/** How many reads have not been answered yet: a page rendered on the server (contractEntry.ts) waits for none. */
+export const reads = { waiting: 0 }
 export async function read<T extends ReadTool>(tool: T, input: ReadTools[T]['input']): Promise<ReadTools[T]['output']> {
-  await wait()
-  const doc = notesRead(tool, input)
-  if (doc !== undefined) return doc as ReadTools[T]['output']
-  if (tool === 'list_widgets') return ((input as { page?: string }).page === '/notes' ? WIDGETS : []) as ReadTools[T]['output']
-  if (tool === 'list_crew') return CREW as ReadTools[T]['output']
-  if (tool === 'list_memories') return MEMORIES as ReadTools[T]['output']
-  if (tool === 'list_questions') return QUESTIONS as ReadTools[T]['output']
-  throw new Error(`verify: no data for ${tool}`)
+  reads.waiting++
+  try {
+    await wait()
+    const doc = notesRead(tool, input)
+    if (doc !== undefined) return doc as ReadTools[T]['output']
+    if (tool === 'list_widgets') return ((input as { page?: string }).page === '/notes' ? WIDGETS : []) as ReadTools[T]['output']
+    if (tool === 'list_crew') return CREW as ReadTools[T]['output']
+    if (tool === 'list_memories') return MEMORIES as ReadTools[T]['output']
+    if (tool === 'list_questions') return QUESTIONS as ReadTools[T]['output']
+    throw new Error(`verify: no data for ${tool}`)
+  } finally {
+    reads.waiting--
+  }
 }
 export async function agent(id: string): Promise<AgentView> {
   calls.push(['agent', id])
